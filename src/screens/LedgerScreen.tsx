@@ -472,7 +472,7 @@ const styles = StyleSheet.create({
   headerContainer: { marginTop: spacing.sm, marginBottom: spacing.md },
   customerName: {
     color: colors.text,
-    fontSize: typography.heading,
+    fontSize: 28,
     fontWeight: "700",
   },
   customerTag: {

@@ -111,7 +111,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   header: { paddingVertical: spacing.md },
   title: {
-    fontSize: typography.heading,
+    fontSize: 28,
     fontWeight: "700",
     color: colors.text,
   },
