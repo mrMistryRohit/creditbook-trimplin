@@ -48,3 +48,58 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+```
+creditbook-trimplin
+├─ 📁.expo
+├─ 📁.vscode
+│  ├─ 📁.react
+│  ├─ 📄extensions.json
+│  └─ 📄settings.json
+├─ 📁app
+│  ├─ 📁(tabs)
+│  │  ├─ 📄explore.tsx
+│  │  ├─ 📄index.tsx
+│  │  └─ 📄_layout.tsx
+│  ├─ 📄modal.tsx
+│  └─ 📄_layout.tsx
+├─ 📁assets
+│  └─ 📁images
+│     ├─ 📄android-icon-background.png
+│     ├─ 📄android-icon-foreground.png
+│     ├─ 📄android-icon-monochrome.png
+│     ├─ 📄favicon.png
+│     ├─ 📄icon.png
+│     ├─ 📄partial-react-logo.png
+│     ├─ 📄react-logo.png
+│     ├─ 📄react-logo@2x.png
+│     ├─ 📄react-logo@3x.png
+│     └─ 📄splash-icon.png
+├─ 📁components
+│  ├─ 📁ui
+│  │  ├─ 📄collapsible.tsx
+│  │  ├─ 📄icon-symbol.ios.tsx
+│  │  └─ 📄icon-symbol.tsx
+│  ├─ 📄external-link.tsx
+│  ├─ 📄haptic-tab.tsx
+│  ├─ 📄hello-wave.tsx
+│  ├─ 📄parallax-scroll-view.tsx
+│  ├─ 📄themed-text.tsx
+│  └─ 📄themed-view.tsx
+├─ 📁constants
+│  └─ 📄theme.ts
+├─ 📁hooks
+│  ├─ 📄use-color-scheme.ts
+│  ├─ 📄use-color-scheme.web.ts
+│  └─ 📄use-theme-color.ts
+├─ 📁node_modules
+├─ 📁scripts
+│  └─ 📄reset-project.js
+├─ 📄.gitignore
+├─ 📄app.json
+├─ 📄eslint.config.js
+├─ 📄package-lock.json
+├─ 📄package.json
+├─ 📄README.md
+└─ 📄tsconfig.json
+```
