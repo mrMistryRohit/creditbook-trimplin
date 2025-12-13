@@ -21,7 +21,9 @@ import {
 } from "../database/customerRepo";
 import { appEvents } from "../utils/events";
 
-type SortOption = "name" | "balance_high" | "balance_low" | "recent";
+type SortOption = "date" | "name" | "amount";
+type SortOrder = "asc" | "desc";
+
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -32,7 +34,9 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<SortOption>("recent");
+  const [sortBy, setSortBy] = useState<SortOption>("date");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc"); // Default: recent first
+
 
   const [addVisible, setAddVisible] = useState(false);
   const [newName, setNewName] = useState("");
@@ -76,22 +80,29 @@ export default function HomeScreen() {
     // Sort
     switch (sortBy) {
       case "name":
-        result.sort((a, b) => a.name.localeCompare(b.name));
+        result.sort((a, b) => {
+          const comparison = a.name.localeCompare(b.name);
+          return sortOrder === "asc" ? comparison : -comparison;
+        });
         break;
-      case "balance_high":
-        result.sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
+      case "amount":
+        result.sort((a, b) => {
+          const comparison = Math.abs(a.balance) - Math.abs(b.balance);
+          return sortOrder === "asc" ? comparison : -comparison;
+        });
         break;
-      case "balance_low":
-        result.sort((a, b) => Math.abs(a.balance) - Math.abs(b.balance));
-        break;
-      case "recent":
+      case "date":
       default:
-        // Keep original order (most recent first from DB)
+        // For date, keep original DB order (recent first) if desc
+        // For asc, reverse it (oldest first)
+        if (sortOrder === "asc") {
+          result.reverse();
+        }
         break;
     }
 
     setFilteredCustomers(result);
-  }, [customers, searchQuery, sortBy]);
+  }, [customers, searchQuery, sortBy, sortOrder]);
 
   const totalDue = customers
     .filter((c) => c.balance > 0)
@@ -103,7 +114,7 @@ export default function HomeScreen() {
 
   const handleCustomerPress = (customer: Customer) => {
     router.push({
-      pathname: "/(tabs)/ledger",
+      pathname: "/customer-detail",
       params: { customer: JSON.stringify(customer) },
     });
   };
@@ -143,193 +154,195 @@ export default function HomeScreen() {
     );
   };
 
+  const handleSortPress = (column: SortOption) => {
+    if (sortBy === column) {
+      // Toggle order if same column
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      // New column: start with ascending
+      setSortBy(column);
+      setSortOrder("asc");
+    }
+  };
+
+  const renderSortArrow = (column: SortOption) => {
+    if (sortBy !== column) return null;
+    return sortOrder === "asc" ? " ↓" : " ↑";
+  };
+
+
   return (
     <Screen>
-        <View style={styles.container}>
-          {/* Custom Header */}
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.appName}>CreditBook</Text>
-              <Text style={styles.brandName}>by Trimplin</Text>
-            </View>
-            <View style={styles.headerRight}>
-              <Text style={styles.headerTitle}>Dashboard</Text>
-              <Text style={styles.headerSubtitle}>
-                Simple digital udhar bahi khata
-              </Text>
-            </View>
+      <View style={styles.container}>
+        {/* Custom Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.appName}>CreditBook</Text>
+            <Text style={styles.brandName}>by Trimplin</Text>
           </View>
-
-          {/* Summary Card */}
-          <Card style={styles.summaryCard}>
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Total you will get</Text>
-                <Text style={[styles.summaryValue, styles.due]}>
-                  ₹ {totalDue.toLocaleString("en-IN")}
-                </Text>
-              </View>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Total you will give</Text>
-                <Text style={[styles.summaryValue, styles.advance]}>
-                  ₹ {Math.abs(totalAdvance).toLocaleString("en-IN")}
-                </Text>
-              </View>
-            </View>
-            <PrimaryButton
-              label="+ Add customer"
-              onPress={() => setAddVisible(true)}
-              style={styles.addCustomerButton}
-            />
-          </Card>
-
-          {/* Search Bar */}
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search customers by name or phone..."
-            placeholderTextColor={colors.textMuted}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-
-          {/* Sort Options */}
-          <View style={styles.sortRow}>
-            <TouchableOpacity
-              style={[
-                styles.sortButton,
-                sortBy === "recent" && styles.sortButtonActive,
-              ]}
-              onPress={() => setSortBy("recent")}
-            >
-              <Text
-                style={[
-                  styles.sortText,
-                  sortBy === "recent" && styles.sortTextActive,
-                ]}
-              >
-                Recent
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.sortButton,
-                sortBy === "name" && styles.sortButtonActive,
-              ]}
-              onPress={() => setSortBy("name")}
-            >
-              <Text
-                style={[
-                  styles.sortText,
-                  sortBy === "name" && styles.sortTextActive,
-                ]}
-              >
-                Name
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.sortButton,
-                sortBy === "balance_high" && styles.sortButtonActive,
-              ]}
-              onPress={() => setSortBy("balance_high")}
-            >
-              <Text
-                style={[
-                  styles.sortText,
-                  sortBy === "balance_high" && styles.sortTextActive,
-                ]}
-              >
-                High Balance
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.sortButton,
-                sortBy === "balance_low" && styles.sortButtonActive,
-              ]}
-              onPress={() => setSortBy("balance_low")}
-            >
-              <Text
-                style={[
-                  styles.sortText,
-                  sortBy === "balance_low" && styles.sortTextActive,
-                ]}
-              >
-                Low Balance
-              </Text>
-            </TouchableOpacity>
+          <View style={styles.headerRight}>
+            <Text style={styles.headerTitle}>Dashboard</Text>
+            <Text style={styles.headerSubtitle}>
+              Simple digital udhar bahi khata
+            </Text>
           </View>
-
-          {/* Section Title */}
-          <Text style={styles.sectionTitle}>
-            {loading ? "Loading..." : `Customers (${filteredCustomers.length})`}
-          </Text>
-
-          {/* Customer List */}
-          <FlatList
-            data={filteredCustomers}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={renderCustomer}
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={
-              !loading ? (
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>
-                    {searchQuery
-                      ? "No customers found for your search."
-                      : 'No customers yet. Tap "+ Add customer" to create one.'}
-                  </Text>
-                </View>
-              ) : null
-            }
-          />
-
-          {/* Add Customer Modal */}
-          <Modal
-            visible={addVisible}
-            transparent
-            animationType="slide"
-            onRequestClose={() => setAddVisible(false)}
-          >
-            <View style={styles.modalBackdrop}>
-              <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>Add Customer</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Customer name"
-                  placeholderTextColor={colors.textMuted}
-                  value={newName}
-                  onChangeText={setNewName}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Phone (optional)"
-                  placeholderTextColor={colors.textMuted}
-                  value={newPhone}
-                  onChangeText={setNewPhone}
-                  keyboardType="phone-pad"
-                />
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.cancelButton]}
-                    onPress={() => setAddVisible(false)}
-                  >
-                    <Text style={styles.cancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.saveButton]}
-                    onPress={handleAddCustomer}
-                  >
-                    <Text style={styles.saveText}>Save</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </Modal>
         </View>
-      </Screen>
+
+        {/* Summary Card */}
+        <Card style={styles.summaryCard}>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Total you will get</Text>
+              <Text style={[styles.summaryValue, styles.due]}>
+                ₹ {totalDue.toLocaleString("en-IN")}
+              </Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Total you will give</Text>
+              <Text style={[styles.summaryValue, styles.advance]}>
+                ₹ {Math.abs(totalAdvance).toLocaleString("en-IN")}
+              </Text>
+            </View>
+          </View>
+          <PrimaryButton
+            label="+ Add customer"
+            onPress={() => setAddVisible(true)}
+            style={styles.addCustomerButton}
+          />
+        </Card>
+
+        {/* Search Bar */}
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search customers by name or phone..."
+          placeholderTextColor={colors.textMuted}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+
+        {/* Sort Options */}
+        <View style={styles.sortRow}>
+          <TouchableOpacity
+            style={[
+              styles.sortButton,
+              sortBy === "date" && styles.sortButtonActive,
+            ]}
+            onPress={() => handleSortPress("date")}
+          >
+            <Text
+              style={[
+                styles.sortText,
+                sortBy === "date" && styles.sortTextActive,
+              ]}
+            >
+              Date{renderSortArrow("date")}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.sortButton,
+              sortBy === "name" && styles.sortButtonActive,
+            ]}
+            onPress={() => handleSortPress("name")}
+          >
+            <Text
+              style={[
+                styles.sortText,
+                sortBy === "name" && styles.sortTextActive,
+              ]}
+            >
+              Name{renderSortArrow("name")}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.sortButton,
+              sortBy === "amount" && styles.sortButtonActive,
+            ]}
+            onPress={() => handleSortPress("amount")}
+          >
+            <Text
+              style={[
+                styles.sortText,
+                sortBy === "amount" && styles.sortTextActive,
+              ]}
+            >
+              Amount{renderSortArrow("amount")}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+
+        {/* Section Title */}
+        <Text style={styles.sectionTitle}>
+          {loading ? "Loading..." : `Customers (${filteredCustomers.length})`}
+        </Text>
+
+        {/* Customer List */}
+        <FlatList
+          data={filteredCustomers}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderCustomer}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            !loading ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>
+                  {searchQuery
+                    ? "No customers found for your search."
+                    : 'No customers yet. Tap "+ Add customer" to create one.'}
+                </Text>
+              </View>
+            ) : null
+          }
+        />
+
+        {/* Add Customer Modal */}
+        <Modal
+          visible={addVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setAddVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Add Customer</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Customer name"
+                placeholderTextColor={colors.textMuted}
+                value={newName}
+                onChangeText={setNewName}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Phone (optional)"
+                placeholderTextColor={colors.textMuted}
+                value={newPhone}
+                onChangeText={setNewPhone}
+                keyboardType="phone-pad"
+              />
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setAddVisible(false)}
+                >
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.saveButton]}
+                  onPress={handleAddCustomer}
+                >
+                  <Text style={styles.saveText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    </Screen>
   );
 }
 
