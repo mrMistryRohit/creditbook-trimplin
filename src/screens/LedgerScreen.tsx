@@ -31,6 +31,8 @@ interface CustomerParam {
   last_activity?: string | null;
 }
 
+type DateFilter = "all" | "today" | "week" | "month";
+
 export default function LedgerScreen() {
   const params = useLocalSearchParams();
   const { user } = useAuth();
@@ -40,6 +42,11 @@ export default function LedgerScreen() {
     : { id: 0, name: "Sample Customer", balance: 0 };
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [filteredTransactions, setFilteredTransactions] = useState<
+    Transaction[]
+  >([]);
+  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
+
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
 
@@ -59,6 +66,54 @@ export default function LedgerScreen() {
   useEffect(() => {
     loadTransactions();
   }, [user, customer.id]);
+
+  // Apply date filter
+  useEffect(() => {
+    let result = [...transactions];
+
+    if (dateFilter !== "all") {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      result = result.filter((txn) => {
+        // Parse the transaction date (format: "dd/mm/yyyy, hh:mm:ss")
+        const txnDate = parseDateString(txn.date);
+        if (!txnDate) return true; // Include if date parse fails
+
+        switch (dateFilter) {
+          case "today":
+            return txnDate >= today;
+          case "week":
+            const weekAgo = new Date(today);
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            return txnDate >= weekAgo;
+          case "month":
+            const monthAgo = new Date(today);
+            monthAgo.setMonth(monthAgo.getMonth() - 1);
+            return txnDate >= monthAgo;
+          default:
+            return true;
+        }
+      });
+    }
+
+    setFilteredTransactions(result);
+  }, [transactions, dateFilter]);
+
+  const parseDateString = (dateStr: string): Date | null => {
+    try {
+      // Expected format: "13/12/2025, 8:42:00 pm" (en-IN locale)
+      const parts = dateStr.split(", ");
+      if (parts.length < 2) return null;
+
+      const datePart = parts[0]; // "13/12/2025"
+      const [day, month, year] = datePart.split("/").map(Number);
+
+      return new Date(year, month - 1, day);
+    } catch {
+      return null;
+    }
+  };
 
   const handleAddTransaction = async (type: "credit" | "debit") => {
     if (!user || !customer.id) return;
@@ -263,15 +318,87 @@ export default function LedgerScreen() {
           />
         </View>
 
-        <Text style={styles.sectionTitle}>Transactions</Text>
+        {/* Date Filters */}
+        <View style={styles.filterRow}>
+          <TouchableOpacity
+            style={[
+              styles.filterButton,
+              dateFilter === "all" && styles.filterButtonActive,
+            ]}
+            onPress={() => setDateFilter("all")}
+          >
+            <Text
+              style={[
+                styles.filterText,
+                dateFilter === "all" && styles.filterTextActive,
+              ]}
+            >
+              All
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.filterButton,
+              dateFilter === "today" && styles.filterButtonActive,
+            ]}
+            onPress={() => setDateFilter("today")}
+          >
+            <Text
+              style={[
+                styles.filterText,
+                dateFilter === "today" && styles.filterTextActive,
+              ]}
+            >
+              Today
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.filterButton,
+              dateFilter === "week" && styles.filterButtonActive,
+            ]}
+            onPress={() => setDateFilter("week")}
+          >
+            <Text
+              style={[
+                styles.filterText,
+                dateFilter === "week" && styles.filterTextActive,
+              ]}
+            >
+              This Week
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.filterButton,
+              dateFilter === "month" && styles.filterButtonActive,
+            ]}
+            onPress={() => setDateFilter("month")}
+          >
+            <Text
+              style={[
+                styles.filterText,
+                dateFilter === "month" && styles.filterTextActive,
+              ]}
+            >
+              This Month
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.sectionTitle}>
+          Transactions ({filteredTransactions.length})
+        </Text>
         <FlatList
-          data={transactions}
+          data={filteredTransactions}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderTransaction}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 24 }}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No transactions yet.</Text>
+            <Text style={styles.emptyText}>
+              No transactions for this period.
+            </Text>
           }
         />
 
@@ -374,8 +501,34 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  buttonRow: { flexDirection: "row", gap: 10, marginBottom: spacing.lg },
+  buttonRow: { flexDirection: "row", gap: 10, marginBottom: spacing.md },
   smallButton: { flex: 1 },
+  filterRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: spacing.md,
+  },
+  filterButton: {
+    flex: 1,
+    paddingVertical: 8,
+    backgroundColor: colors.inputBackground,
+    borderRadius: 8,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  filterTextActive: {
+    color: "white",
+  },
   sectionTitle: {
     color: colors.text,
     fontSize: typography.subheading,
