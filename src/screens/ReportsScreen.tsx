@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,6 +9,7 @@ import {
 } from "react-native";
 import { colors, spacing, typography } from "../../constants/theme";
 import Card from "../components/Card";
+import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
 import { getReportsForUser, PeriodReport } from "../database/reportsRepo";
 import { appEvents } from "../utils/events";
@@ -50,29 +50,29 @@ export default function ReportsScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <Screen>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Loading reports...</Text>
         </View>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   if (!reports) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <Screen>
         <View style={styles.loadingContainer}>
           <Text style={styles.errorText}>Failed to load reports.</Text>
         </View>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   const currentReport = reports[activePeriod];
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <Screen>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Text style={styles.title}>Reports</Text>
@@ -276,18 +276,13 @@ export default function ReportsScreen() {
           </View>
         </Card>
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
   container: {
     flex: 1,
-    paddingHorizontal: 16,
   },
   loadingContainer: {
     flex: 1,

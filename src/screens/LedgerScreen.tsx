@@ -4,7 +4,6 @@ import {
   Alert,
   FlatList,
   Modal,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,6 +13,7 @@ import {
 import { colors, radius, spacing, typography } from "../../constants/theme";
 import Card from "../components/Card";
 import PrimaryButton from "../components/PrimaryButton";
+import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
 import {
   Transaction,
@@ -266,7 +266,7 @@ export default function LedgerScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <Screen>
       <View style={styles.container}>
         <View style={styles.headerContainer}>
           <Text style={styles.customerName}>{customer.name}</Text>
@@ -462,13 +462,13 @@ export default function LedgerScreen() {
           </View>
         </Modal>
       </View>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
+
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background },
-  container: { flex: 1, paddingHorizontal: 16 },
+  container: { flex: 1 },
   headerContainer: { marginTop: spacing.sm, marginBottom: spacing.md },
   customerName: {
     color: colors.text,

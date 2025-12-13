@@ -1,16 +1,21 @@
 import React from "react";
-import { SafeAreaView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 import { colors } from "../../constants/theme";
 
 export default function Screen({ children }: { children: React.ReactNode }) {
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>{children}</View>
-    </SafeAreaView>
+    <>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        <View style={styles.container}>{children}</View>
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
-  container: { flex: 1, paddingHorizontal: 16, paddingTop: 8 },
+  container: { flex: 1, paddingHorizontal: 16},
 });
