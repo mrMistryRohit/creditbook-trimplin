@@ -1,10 +1,10 @@
 import { Slot, useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
-import { initDatabase } from "../src/database/db";
+import { initDB } from "../src/database/db";
 
 // Initialize database
-initDatabase();
+initDB();
 
 function RootLayoutNav() {
   const { user, isLoading } = useAuth();
