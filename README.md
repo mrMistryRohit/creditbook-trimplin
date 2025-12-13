@@ -53,13 +53,18 @@ Join our community of developers creating universal apps.
 creditbook-trimplin
 ├─ 📁.expo
 ├─ 📁.vscode
-│  ├─ 📁.react
 │  ├─ 📄extensions.json
 │  └─ 📄settings.json
 ├─ 📁app
+│  ├─ 📁(auth)
+│  │  ├─ 📄login.tsx
+│  │  ├─ 📄register.tsx
+│  │  └─ 📄_layout.tsx
 │  ├─ 📁(tabs)
-│  │  ├─ 📄explore.tsx
 │  │  ├─ 📄index.tsx
+│  │  ├─ 📄ledger.tsx
+│  │  ├─ 📄reports.tsx
+│  │  ├─ 📄settings.tsx
 │  │  └─ 📄_layout.tsx
 │  ├─ 📄modal.tsx
 │  └─ 📄_layout.tsx
@@ -95,8 +100,29 @@ creditbook-trimplin
 ├─ 📁node_modules
 ├─ 📁scripts
 │  └─ 📄reset-project.js
+├─ 📁src
+│  ├─ 📁components
+│  │  ├─ 📄AppHeader.tsx
+│  │  ├─ 📄Card.tsx
+│  │  ├─ 📄PrimaryButton.tsx
+│  │  └─ 📄Screen.tsx
+│  ├─ 📁context
+│  │  └─ 📄AuthContext.tsx
+│  ├─ 📁database
+│  │  ├─ 📄customerRepo.ts
+│  │  ├─ 📄db.ts
+│  │  ├─ 📄transactionRepo.ts
+│  │  └─ 📄userRepo.ts
+│  ├─ 📁screens
+│  │  ├─ 📄HomeScreen.tsx
+│  │  ├─ 📄LedgerScreen.tsx
+│  │  ├─ 📄ReportsScreen.tsx
+│  │  └─ 📄SettingsScreen.tsx
+│  └─ 📁utils
+│     └─ 📄events.ts
 ├─ 📄.gitignore
 ├─ 📄app.json
+├─ 📄eas.json
 ├─ 📄eslint.config.js
 ├─ 📄package-lock.json
 ├─ 📄package.json
