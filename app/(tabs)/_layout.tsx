@@ -1,7 +1,31 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { Tabs, useRouter, usePathname } from "expo-router";
+import { useEffect } from "react";
+import { BackHandler } from "react-native";
 
 export default function TabLayout() {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        // If on home/index tab, exit app
+        if (pathname === '/(tabs)' || pathname === '/') {
+          BackHandler.exitApp();
+          return true;
+        }
+
+        // If on any other tab, go to home
+        router.replace('/(tabs)');
+        return true;
+      }
+    );
+
+    return () => backHandler.remove();
+  }, [pathname]);
+
   return (
     <Tabs
       screenOptions={{
