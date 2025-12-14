@@ -72,13 +72,14 @@ export default function CustomerDetailScreen() {
     const backHandler = BackHandler.addEventListener(
       'hardwareBackPress',
       () => {
-        router.push("/(tabs)/ledger");
-        return true; // Prevent default back behavior
+        router.replace("/(tabs)/ledger");
+        return true;
       }
     );
-
     return () => backHandler.remove();
   }, []);
+
+
 
   // Apply date filter
   useEffect(() => {
@@ -281,7 +282,11 @@ export default function CustomerDetailScreen() {
       <View style={styles.container}>
         {/* Back Button Header */}
         <View style={styles.headerContainer}>
-          <TouchableOpacity onPress={() => router.push("/(tabs)/ledger")} style={styles.backButton}>
+          <TouchableOpacity
+            onPress={() => router.replace("/(tabs)/ledger")}
+            style={styles.backButton}
+          >
+
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.headerText}>
