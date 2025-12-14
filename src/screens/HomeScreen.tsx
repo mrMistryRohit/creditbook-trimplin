@@ -19,55 +19,74 @@ import {
   Customer,
   getCustomersByUser,
 } from "../database/customerRepo";
+import {
+  addSupplier,
+  getSuppliersByUser,
+  Supplier,
+} from "../database/supplierRepo";
 import { appEvents } from "../utils/events";
 
 type SortOption = "date" | "name" | "amount";
 type SortOrder = "asc" | "desc";
-
+type HomeTab = "customers" | "suppliers";
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState<HomeTab>("customers");
+
+  // Customers
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
-  const [loading, setLoading] = useState(true);
 
+  // Suppliers
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [filteredSuppliers, setFilteredSuppliers] = useState<Supplier[]>([]);
+
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("date");
-  const [sortOrder, setSortOrder] = useState<SortOrder>("desc"); // Default: recent first
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
-
-  const [addVisible, setAddVisible] = useState(false);
+  // Modals
+  const [addCustomerVisible, setAddCustomerVisible] = useState(false);
+  const [addSupplierVisible, setAddSupplierVisible] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
 
-  const loadCustomers = async () => {
+  const loadData = async () => {
     if (!user) return;
     setLoading(true);
-    const list = await getCustomersByUser(user.id);
-    setCustomers(list);
+    const [customerList, supplierList] = await Promise.all([
+      getCustomersByUser(user.id),
+      getSuppliersByUser(user.id),
+    ]);
+    setCustomers(customerList);
+    setSuppliers(supplierList);
     setLoading(false);
   };
 
   useEffect(() => {
-    loadCustomers();
+    loadData();
 
     const handler = () => {
-      loadCustomers();
+      loadData();
     };
 
     appEvents.on("customerUpdated", handler);
+    appEvents.on("supplierUpdated", handler);
     return () => {
       appEvents.off("customerUpdated", handler);
+      appEvents.off("supplierUpdated", handler);
     };
   }, [user?.id]);
 
-  // Apply search and sort
+  // Apply search and sort for customers
   useEffect(() => {
     let result = [...customers];
 
-    // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(
@@ -77,7 +96,6 @@ export default function HomeScreen() {
       );
     }
 
-    // Sort
     switch (sortBy) {
       case "name":
         result.sort((a, b) => {
@@ -93,8 +111,6 @@ export default function HomeScreen() {
         break;
       case "date":
       default:
-        // For date, keep original DB order (recent first) if desc
-        // For asc, reverse it (oldest first)
         if (sortOrder === "asc") {
           result.reverse();
         }
@@ -104,6 +120,44 @@ export default function HomeScreen() {
     setFilteredCustomers(result);
   }, [customers, searchQuery, sortBy, sortOrder]);
 
+  // Apply search and sort for suppliers
+  useEffect(() => {
+    let result = [...suppliers];
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(
+        (s) =>
+          s.name.toLowerCase().includes(query) ||
+          (s.phone && s.phone.toLowerCase().includes(query))
+      );
+    }
+
+    switch (sortBy) {
+      case "name":
+        result.sort((a, b) => {
+          const comparison = a.name.localeCompare(b.name);
+          return sortOrder === "asc" ? comparison : -comparison;
+        });
+        break;
+      case "amount":
+        result.sort((a, b) => {
+          const comparison = Math.abs(a.balance) - Math.abs(b.balance);
+          return sortOrder === "asc" ? comparison : -comparison;
+        });
+        break;
+      case "date":
+      default:
+        if (sortOrder === "asc") {
+          result.reverse();
+        }
+        break;
+    }
+
+    setFilteredSuppliers(result);
+  }, [suppliers, searchQuery, sortBy, sortOrder]);
+
+  // Calculate totals
   const totalDue = customers
     .filter((c) => c.balance > 0)
     .reduce((sum, c) => sum + c.balance, 0);
@@ -112,11 +166,26 @@ export default function HomeScreen() {
     .filter((c) => c.balance < 0)
     .reduce((sum, c) => sum + c.balance, 0);
 
-  const handleCustomerPress = (customer: Customer) => {
-    router.push({
-      pathname: "/customer-detail",
-      params: { customer: JSON.stringify(customer) },
-    });
+  const totalPayable = suppliers
+    .filter((s) => s.balance > 0)
+    .reduce((sum, s) => sum + s.balance, 0);
+
+  const totalReceivable = suppliers
+    .filter((s) => s.balance < 0)
+    .reduce((sum, s) => sum + s.balance, 0);
+
+  const handleItemPress = (item: Customer | Supplier) => {
+    if (activeTab === "customers") {
+      router.push({
+        pathname: "/customer-detail",
+        params: { customer: JSON.stringify(item) },
+      });
+    } else {
+      router.push({
+        pathname: "/supplier-detail",
+        params: { supplier: JSON.stringify(item) },
+      });
+    }
   };
 
   const handleAddCustomer = async () => {
@@ -124,42 +193,23 @@ export default function HomeScreen() {
     await addCustomer(user.id, newName.trim(), newPhone.trim());
     setNewName("");
     setNewPhone("");
-    setAddVisible(false);
-    await loadCustomers();
+    setAddCustomerVisible(false);
+    await loadData();
   };
 
-  const renderCustomer = ({ item }: { item: Customer }) => {
-    const isDue = item.balance > 0;
-    return (
-      <TouchableOpacity
-        style={styles.customerRow}
-        onPress={() => handleCustomerPress(item)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.customerInfo}>
-          <Text style={styles.customerName}>{item.name}</Text>
-          <Text style={styles.customerSubtitle}>
-            {item.phone || item.last_activity || "No activity"}
-          </Text>
-        </View>
-        <View style={styles.balanceContainer}>
-          <Text style={[styles.balance, isDue ? styles.due : styles.advance]}>
-            ₹ {Math.abs(item.balance).toLocaleString("en-IN")}
-          </Text>
-          <Text style={styles.balanceLabel}>
-            {isDue ? "You will get" : "You will give"}
-          </Text>
-        </View>
-      </TouchableOpacity>
-    );
+  const handleAddSupplier = async () => {
+    if (!user || !newName.trim()) return;
+    await addSupplier(user.id, newName.trim(), newPhone.trim());
+    setNewName("");
+    setNewPhone("");
+    setAddSupplierVisible(false);
+    await loadData();
   };
 
   const handleSortPress = (column: SortOption) => {
     if (sortBy === column) {
-      // Toggle order if same column
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
     } else {
-      // New column: start with ascending
       setSortBy(column);
       setSortOrder("asc");
     }
@@ -170,6 +220,53 @@ export default function HomeScreen() {
     return sortOrder === "asc" ? " ↓" : " ↑";
   };
 
+  const renderItem = ({ item }: { item: Customer | Supplier }) => {
+    const isCustomer = activeTab === "customers";
+    const isDue = item.balance > 0;
+
+    return (
+      <TouchableOpacity
+        style={styles.itemRow}
+        onPress={() => handleItemPress(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.itemInfo}>
+          <Text style={styles.itemName}>{item.name}</Text>
+          <Text style={styles.itemSubtitle}>
+            {item.phone || item.last_activity || "No activity"}
+          </Text>
+        </View>
+        <View style={styles.balanceContainer}>
+          <Text
+            style={[
+              styles.balance,
+              isCustomer
+                ? isDue
+                  ? styles.due
+                  : styles.advance
+                : isDue
+                  ? styles.payable
+                  : styles.receivable,
+            ]}
+          >
+            ₹ {Math.abs(item.balance).toLocaleString("en-IN")}
+          </Text>
+          <Text style={styles.balanceLabel}>
+            {isCustomer
+              ? isDue
+                ? "You will get"
+                : "You will give"
+              : isDue
+                ? "You will pay"
+                : "You will get"}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const currentData =
+    activeTab === "customers" ? filteredCustomers : filteredSuppliers;
 
   return (
     <Screen>
@@ -188,33 +285,53 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Summary Card */}
+        {/* Unified Summary Card */}
         <Card style={styles.summaryCard}>
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Total you will get</Text>
               <Text style={[styles.summaryValue, styles.due]}>
-                ₹ {totalDue.toLocaleString("en-IN")}
+                ₹ {(totalDue + Math.abs(totalReceivable)).toLocaleString("en-IN")}
+              </Text>
+              <Text style={styles.summaryBreakdown}>
+                Customers: ₹{totalDue.toLocaleString("en-IN")}
+                {"\n"}
+                Suppliers: ₹{Math.abs(totalReceivable).toLocaleString("en-IN")}
               </Text>
             </View>
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Total you will give</Text>
               <Text style={[styles.summaryValue, styles.advance]}>
-                ₹ {Math.abs(totalAdvance).toLocaleString("en-IN")}
+                ₹ {(Math.abs(totalAdvance) + totalPayable).toLocaleString("en-IN")}
+              </Text>
+              <Text style={styles.summaryBreakdown}>
+                Customers: ₹{Math.abs(totalAdvance).toLocaleString("en-IN")}
+                {"\n"}
+                Suppliers: ₹{totalPayable.toLocaleString("en-IN")}
               </Text>
             </View>
           </View>
-          <PrimaryButton
-            label="+ Add customer"
-            onPress={() => setAddVisible(true)}
-            style={styles.addCustomerButton}
-          />
+
+          {/* Buttons */}
+          <View style={styles.buttonRow}>
+            <PrimaryButton
+              label="+ Add customer"
+              onPress={() => setAddCustomerVisible(true)}
+              style={styles.addButton}
+            />
+            <PrimaryButton
+              label="+ Add supplier"
+              onPress={() => setAddSupplierVisible(true)}
+              style={styles.addButton}
+            />
+          </View>
         </Card>
+
 
         {/* Search Bar */}
         <TextInput
           style={styles.searchInput}
-          placeholder="Search customers by name or phone..."
+          placeholder={`Search ${activeTab} by name or phone...`}
           placeholderTextColor={colors.textMuted}
           value={searchQuery}
           onChangeText={setSearchQuery}
@@ -272,17 +389,47 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Customer/Supplier Tab Switcher */}
+        <View style={styles.tabSwitcher}>
+          <TouchableOpacity
+            style={[
+              styles.tabButton,
+              activeTab === "customers" && styles.tabButtonActive,
+            ]}
+            onPress={() => setActiveTab("customers")}
+          >
+            <Text
+              style={[
+                styles.tabButtonText,
+                activeTab === "customers" && styles.tabButtonTextActive,
+              ]}
+            >
+              Customers ({customers.length})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.tabButton,
+              activeTab === "suppliers" && styles.tabButtonActive,
+            ]}
+            onPress={() => setActiveTab("suppliers")}
+          >
+            <Text
+              style={[
+                styles.tabButtonText,
+                activeTab === "suppliers" && styles.tabButtonTextActive,
+              ]}
+            >
+              Suppliers ({suppliers.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-        {/* Section Title */}
-        <Text style={styles.sectionTitle}>
-          {loading ? "Loading..." : `Customers (${filteredCustomers.length})`}
-        </Text>
-
-        {/* Customer List */}
+        {/* List */}
         <FlatList
-          data={filteredCustomers}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={renderCustomer}
+          data={currentData}
+          keyExtractor={(item) => `${activeTab}-${item.id}`}
+          renderItem={renderItem}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -291,8 +438,9 @@ export default function HomeScreen() {
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyText}>
                   {searchQuery
-                    ? "No customers found for your search."
-                    : 'No customers yet. Tap "+ Add customer" to create one.'}
+                    ? `No ${activeTab} found for your search.`
+                    : `No ${activeTab} yet. Tap "+ Add ${activeTab === "customers" ? "customer" : "supplier"
+                    }" to create one.`}
                 </Text>
               </View>
             ) : null
@@ -301,10 +449,10 @@ export default function HomeScreen() {
 
         {/* Add Customer Modal */}
         <Modal
-          visible={addVisible}
+          visible={addCustomerVisible}
           transparent
           animationType="slide"
-          onRequestClose={() => setAddVisible(false)}
+          onRequestClose={() => setAddCustomerVisible(false)}
         >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalContent}>
@@ -327,7 +475,7 @@ export default function HomeScreen() {
               <View style={styles.modalButtons}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.cancelButton]}
-                  onPress={() => setAddVisible(false)}
+                  onPress={() => setAddCustomerVisible(false)}
                 >
                   <Text style={styles.cancelText}>Cancel</Text>
                 </TouchableOpacity>
@@ -341,11 +489,53 @@ export default function HomeScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* Add Supplier Modal */}
+        <Modal
+          visible={addSupplierVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setAddSupplierVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Add Supplier</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Supplier name"
+                placeholderTextColor={colors.textMuted}
+                value={newName}
+                onChangeText={setNewName}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Phone (optional)"
+                placeholderTextColor={colors.textMuted}
+                value={newPhone}
+                onChangeText={setNewPhone}
+                keyboardType="phone-pad"
+              />
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setAddSupplierVisible(false)}
+                >
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.saveButton]}
+                  onPress={handleAddSupplier}
+                >
+                  <Text style={styles.saveText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     </Screen>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: {
@@ -404,9 +594,22 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "700",
   },
+  summaryBreakdown: {
+    color: colors.textMuted,
+    fontSize: 11,
+    marginTop: 4,
+  },
+
   due: { color: colors.accent },
   advance: { color: colors.danger },
-  addCustomerButton: {
+  payable: { color: colors.danger },
+  receivable: { color: colors.accent },
+  buttonRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  addButton: {
+    flex: 1,
     marginTop: 4,
   },
   searchInput: {
@@ -420,6 +623,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+
+  archivedToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    marginBottom: 12,
+    gap: 8,
+  },
+  archivedToggleText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
   sortRow: {
     flexDirection: "row",
     gap: 8,
@@ -447,16 +665,35 @@ const styles = StyleSheet.create({
   sortTextActive: {
     color: "white",
   },
-  sectionTitle: {
-    color: colors.text,
-    fontSize: 18,
+  tabSwitcher: {
+    flexDirection: "row",
+    marginBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  tabButtonActive: {
+    borderBottomColor: colors.accent,
+  },
+  tabButtonText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  tabButtonTextActive: {
+    color: colors.accent,
     fontWeight: "700",
-    marginBottom: 12,
   },
   listContent: {
     paddingBottom: 120,
   },
-  customerRow: {
+  itemRow: {
     backgroundColor: colors.inputBackground,
     paddingVertical: 16,
     paddingHorizontal: 16,
@@ -465,15 +702,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  customerInfo: {
+  itemInfo: {
     flex: 1,
   },
-  customerName: {
+  itemName: {
     color: colors.text,
     fontSize: 16,
     fontWeight: "600",
   },
-  customerSubtitle: {
+  itemSubtitle: {
     color: colors.textMuted,
     fontSize: 13,
     marginTop: 4,

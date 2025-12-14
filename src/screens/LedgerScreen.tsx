@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -15,49 +16,69 @@ import {
   Customer,
   getCustomersByUser,
 } from "../database/customerRepo";
+import {
+  Supplier,
+  getSuppliersByUser,
+} from "../database/supplierRepo";
 import { appEvents } from "../utils/events";
 
 type SortOption = "date" | "name" | "amount";
 type SortOrder = "asc" | "desc";
+type LedgerTab = "customers" | "suppliers";
 
 export default function LedgerScreen() {
   const router = useRouter();
   const { user } = useAuth();
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState<LedgerTab>("customers");
+
+  // Customers
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
-  const [loading, setLoading] = useState(true);
 
+  // Suppliers
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [filteredSuppliers, setFilteredSuppliers] = useState<Supplier[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+
+
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("date");
-  const [sortOrder, setSortOrder] = useState<SortOrder>("desc"); // Default: recent first
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
-  const loadCustomers = async () => {
+  const loadData = async () => {
     if (!user) return;
     setLoading(true);
-    const list = await getCustomersByUser(user.id);
-    setCustomers(list);
+    const [customerList, supplierList] = await Promise.all([
+      getCustomersByUser(user.id, showArchived),
+      getSuppliersByUser(user.id, showArchived),
+    ]);
+    setCustomers(customerList);
+    setSuppliers(supplierList);
     setLoading(false);
   };
 
   useEffect(() => {
-    loadCustomers();
+    loadData();
 
     const handler = () => {
-      loadCustomers();
+      loadData();
     };
 
     appEvents.on("customerUpdated", handler);
+    appEvents.on("supplierUpdated", handler);
     return () => {
       appEvents.off("customerUpdated", handler);
+      appEvents.off("supplierUpdated", handler);
     };
-  }, [user?.id]);
+  }, [user?.id, showArchived]);
 
-  // Apply search and sort
+  // Apply search and sort for customers
   useEffect(() => {
     let result = [...customers];
 
-    // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(
@@ -67,7 +88,6 @@ export default function LedgerScreen() {
       );
     }
 
-    // Sort
     switch (sortBy) {
       case "name":
         result.sort((a, b) => {
@@ -83,8 +103,6 @@ export default function LedgerScreen() {
         break;
       case "date":
       default:
-        // For date, keep original DB order (recent first) if desc
-        // For asc, reverse it (oldest first)
         if (sortOrder === "asc") {
           result.reverse();
         }
@@ -94,22 +112,64 @@ export default function LedgerScreen() {
     setFilteredCustomers(result);
   }, [customers, searchQuery, sortBy, sortOrder]);
 
-  const handleSortPress = (column: SortOption) => {
-    if (sortBy === column) {
-      // Toggle order if same column
-      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+  // Apply search and sort for suppliers
+  useEffect(() => {
+    let result = [...suppliers];
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(
+        (s) =>
+          s.name.toLowerCase().includes(query) ||
+          (s.phone && s.phone.toLowerCase().includes(query))
+      );
+    }
+
+    switch (sortBy) {
+      case "name":
+        result.sort((a, b) => {
+          const comparison = a.name.localeCompare(b.name);
+          return sortOrder === "asc" ? comparison : -comparison;
+        });
+        break;
+      case "amount":
+        result.sort((a, b) => {
+          const comparison = Math.abs(a.balance) - Math.abs(b.balance);
+          return sortOrder === "asc" ? comparison : -comparison;
+        });
+        break;
+      case "date":
+      default:
+        if (sortOrder === "asc") {
+          result.reverse();
+        }
+        break;
+    }
+
+    setFilteredSuppliers(result);
+  }, [suppliers, searchQuery, sortBy, sortOrder]);
+
+  const handleItemPress = (item: Customer | Supplier) => {
+    if (activeTab === "customers") {
+      router.push({
+        pathname: "/customer-detail",
+        params: { customer: JSON.stringify(item) },
+      });
     } else {
-      // New column: start with ascending
-      setSortBy(column);
-      setSortOrder("asc");
+      router.push({
+        pathname: "/supplier-detail",
+        params: { supplier: JSON.stringify(item) },
+      });
     }
   };
 
-  const handleCustomerPress = (customer: Customer) => {
-    router.push({
-      pathname: "/customer-detail",
-      params: { customer: JSON.stringify(customer) },
-    });
+  const handleSortPress = (column: SortOption) => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(column);
+      setSortOrder("asc");
+    }
   };
 
   const renderSortArrow = (column: SortOption) => {
@@ -117,31 +177,53 @@ export default function LedgerScreen() {
     return sortOrder === "asc" ? " ↓" : " ↑";
   };
 
-  const renderCustomer = ({ item }: { item: Customer }) => {
+  const renderItem = ({ item }: { item: Customer | Supplier }) => {
+    const isCustomer = activeTab === "customers";
     const isDue = item.balance > 0;
+
     return (
       <TouchableOpacity
-        style={styles.customerRow}
-        onPress={() => handleCustomerPress(item)}
+        style={styles.itemRow}
+        onPress={() => handleItemPress(item)}
         activeOpacity={0.7}
       >
-        <View style={styles.customerInfo}>
-          <Text style={styles.customerName}>{item.name}</Text>
-          <Text style={styles.customerSubtitle}>
+        <View style={styles.itemInfo}>
+          <Text style={styles.itemName}>{item.name}</Text>
+          <Text style={styles.itemSubtitle}>
             {item.phone || item.last_activity || "No activity"}
           </Text>
         </View>
         <View style={styles.balanceContainer}>
-          <Text style={[styles.balance, isDue ? styles.credit : styles.debit]}>
+          <Text
+            style={[
+              styles.balance,
+              isCustomer
+                ? isDue
+                  ? styles.customerDue
+                  : styles.customerAdvance
+                : isDue
+                  ? styles.supplierPayable
+                  : styles.supplierReceivable,
+            ]}
+          >
             ₹ {Math.abs(item.balance).toLocaleString("en-IN")}
           </Text>
           <Text style={styles.balanceLabel}>
-            {isDue ? "You will get" : "You will give"}
+            {isCustomer
+              ? isDue
+                ? "You will get"
+                : "You will give"
+              : isDue
+                ? "You will pay"
+                : "You will get"}
           </Text>
         </View>
       </TouchableOpacity>
     );
   };
+
+  const currentData = activeTab === "customers" ? filteredCustomers : filteredSuppliers;
+  const currentCount = activeTab === "customers" ? customers.length : suppliers.length;
 
   return (
     <Screen>
@@ -149,71 +231,109 @@ export default function LedgerScreen() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Ledger</Text>
-          <Text style={styles.subtitle}>All customer accounts</Text>
+          <Text style={styles.subtitle}>All customer & supplier accounts</Text>
         </View>
 
         {/* Search Bar */}
         <TextInput
           style={styles.searchInput}
-          placeholder="Search customers by name or phone..."
+          placeholder={`Search ${activeTab} by name or phone...`}
           placeholderTextColor={colors.textMuted}
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
 
+        {/* View Archived Toggle */}
+        <TouchableOpacity
+          style={styles.archivedToggle}
+          onPress={() => setShowArchived(!showArchived)}
+        >
+          <Ionicons
+            name={showArchived ? "eye-off-outline" : "eye-outline"}
+            size={20}
+            color={colors.textMuted}
+          />
+          <Text style={styles.archivedToggleText}>
+            {showArchived ? "Hide Archived" : "Show Archived"}
+          </Text>
+        </TouchableOpacity>
+
+
         {/* Sort Tabs */}
-        <View style={styles.tabRow}>
+        <View style={styles.sortRow}>
           <TouchableOpacity
-            style={[styles.tab, sortBy === "date" && styles.tabActive]}
+            style={[styles.sortButton, sortBy === "date" && styles.sortButtonActive]}
             onPress={() => handleSortPress("date")}
           >
             <Text
-              style={[
-                styles.tabText,
-                sortBy === "date" && styles.tabTextActive,
-              ]}
+              style={[styles.sortText, sortBy === "date" && styles.sortTextActive]}
             >
               Date{renderSortArrow("date")}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tab, sortBy === "name" && styles.tabActive]}
+            style={[styles.sortButton, sortBy === "name" && styles.sortButtonActive]}
             onPress={() => handleSortPress("name")}
           >
             <Text
-              style={[
-                styles.tabText,
-                sortBy === "name" && styles.tabTextActive,
-              ]}
+              style={[styles.sortText, sortBy === "name" && styles.sortTextActive]}
             >
               Name{renderSortArrow("name")}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tab, sortBy === "amount" && styles.tabActive]}
+            style={[styles.sortButton, sortBy === "amount" && styles.sortButtonActive]}
             onPress={() => handleSortPress("amount")}
           >
             <Text
-              style={[
-                styles.tabText,
-                sortBy === "amount" && styles.tabTextActive,
-              ]}
+              style={[styles.sortText, sortBy === "amount" && styles.sortTextActive]}
             >
               Amount{renderSortArrow("amount")}
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Section Title */}
-        <Text style={styles.sectionTitle}>
-          {loading ? "Loading..." : `${filteredCustomers.length} Customers`}
-        </Text>
+        {/* Customer/Supplier Tab Switcher */}
+        <View style={styles.tabSwitcher}>
+          <TouchableOpacity
+            style={[
+              styles.tabButton,
+              activeTab === "customers" && styles.tabButtonActive,
+            ]}
+            onPress={() => setActiveTab("customers")}
+          >
+            <Text
+              style={[
+                styles.tabButtonText,
+                activeTab === "customers" && styles.tabButtonTextActive,
+              ]}
+            >
+              Customers ({customers.length})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.tabButton,
+              activeTab === "suppliers" && styles.tabButtonActive,
+            ]}
+            onPress={() => setActiveTab("suppliers")}
+          >
+            <Text
+              style={[
+                styles.tabButtonText,
+                activeTab === "suppliers" && styles.tabButtonTextActive,
+              ]}
+            >
+              Suppliers ({suppliers.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-        {/* Customer List */}
+        {/* List */}
         <FlatList
-          data={filteredCustomers}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={renderCustomer}
+          data={currentData}
+          keyExtractor={(item) => `${activeTab}-${item.id}`}
+          renderItem={renderItem}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -222,8 +342,8 @@ export default function LedgerScreen() {
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyText}>
                   {searchQuery
-                    ? "No customers found for your search."
-                    : "No customers yet. Add customers from Home screen."}
+                    ? `No ${activeTab} found for your search.`
+                    : `No ${activeTab} yet. Add from Home screen.`}
                 </Text>
               </View>
             ) : null
@@ -235,9 +355,7 @@ export default function LedgerScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   header: {
     paddingTop: 12,
     paddingBottom: 16,
@@ -263,12 +381,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  tabRow: {
+  archivedToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    marginBottom: 12,
+    gap: 8,
+  },
+  archivedToggleText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  sortRow: {
     flexDirection: "row",
     gap: 8,
     marginBottom: spacing.md,
   },
-  tab: {
+  sortButton: {
     flex: 1,
     paddingVertical: 10,
     backgroundColor: colors.inputBackground,
@@ -277,28 +409,47 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  tabActive: {
+  sortButtonActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  tabText: {
+  sortText: {
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: "600",
   },
-  tabTextActive: {
+  sortTextActive: {
     color: "white",
   },
-  sectionTitle: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: "700",
+  tabSwitcher: {
+    flexDirection: "row",
     marginBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  tabButtonActive: {
+    borderBottomColor: colors.accent,
+  },
+  tabButtonText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  tabButtonTextActive: {
+    color: colors.accent,
+    fontWeight: "700",
   },
   listContent: {
     paddingBottom: 120,
   },
-  customerRow: {
+  itemRow: {
     backgroundColor: colors.inputBackground,
     paddingVertical: 16,
     paddingHorizontal: 16,
@@ -307,15 +458,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  customerInfo: {
-    flex: 1,
-  },
-  customerName: {
+  itemInfo: { flex: 1 },
+  itemName: {
     color: colors.text,
     fontSize: 16,
     fontWeight: "600",
   },
-  customerSubtitle: {
+  itemSubtitle: {
     color: colors.textMuted,
     fontSize: 13,
     marginTop: 4,
@@ -328,8 +477,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
   },
-  credit: { color: colors.accent },
-  debit: { color: colors.danger },
+  customerDue: { color: colors.accent },
+  customerAdvance: { color: colors.danger },
+  supplierPayable: { color: colors.danger },
+  supplierReceivable: { color: colors.accent },
   balanceLabel: {
     color: colors.textMuted,
     fontSize: 12,
