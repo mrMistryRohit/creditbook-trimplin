@@ -53,6 +53,7 @@ Join our community of developers creating universal apps.
 creditbook-trimplin
 ├─ 📁.expo
 ├─ 📁.vscode
+│  ├─ 📁.react
 │  ├─ 📄extensions.json
 │  └─ 📄settings.json
 ├─ 📁app
@@ -66,7 +67,9 @@ creditbook-trimplin
 │  │  ├─ 📄reports.tsx
 │  │  ├─ 📄settings.tsx
 │  │  └─ 📄_layout.tsx
+│  ├─ 📄customer-detail.tsx
 │  ├─ 📄modal.tsx
+│  ├─ 📄supplier-detail.tsx
 │  └─ 📄_layout.tsx
 ├─ 📁assets
 │  └─ 📁images
@@ -111,13 +114,18 @@ creditbook-trimplin
 │  ├─ 📁database
 │  │  ├─ 📄customerRepo.ts
 │  │  ├─ 📄db.ts
+│  │  ├─ 📄reportsRepo.ts
+│  │  ├─ 📄supplierRepo.ts
+│  │  ├─ 📄supplierTransactionRepo.ts
 │  │  ├─ 📄transactionRepo.ts
 │  │  └─ 📄userRepo.ts
 │  ├─ 📁screens
+│  │  ├─ 📄CustomerDetailScreen.tsx
 │  │  ├─ 📄HomeScreen.tsx
 │  │  ├─ 📄LedgerScreen.tsx
 │  │  ├─ 📄ReportsScreen.tsx
-│  │  └─ 📄SettingsScreen.tsx
+│  │  ├─ 📄SettingsScreen.tsx
+│  │  └─ 📄SupplierDetailScreen.tsx
 │  └─ 📁utils
 │     └─ 📄events.ts
 ├─ 📄.gitignore
