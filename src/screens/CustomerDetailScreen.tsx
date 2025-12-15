@@ -24,13 +24,20 @@ import {
   getTransactionsForCustomer,
   updateTransaction,
 } from "../database/transactionRepo";
+import {
+  archiveCustomer,
+  unarchiveCustomer,
+  Customer,
+} from "../database/customerRepo";
 import { appEvents } from "../utils/events";
 
 interface CustomerParam {
   id: number;
+  user_id: number;
   name: string;
   balance: number;
   last_activity?: string | null;
+  archived?: number;
 }
 
 type DateFilter = "all" | "today" | "week" | "month";
@@ -43,6 +50,8 @@ export default function CustomerDetailScreen() {
   const customer: CustomerParam = params.customer
     ? JSON.parse(params.customer as string)
     : { id: 0, name: "Unknown Customer", balance: 0 };
+
+  const [customerData, setCustomerData] = useState<Customer>(customer);
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
@@ -215,6 +224,36 @@ export default function CustomerDetailScreen() {
     );
   };
 
+  const handleArchiveCustomer = () => {
+    Alert.alert(
+      customerData.archived ? "Unarchive Customer" : "Archive Customer",
+      customerData.archived
+        ? "Do you want to unarchive this customer?"
+        : "Are you sure you want to archive this customer?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: customerData.archived ? "Unarchive" : "Archive",
+          onPress: async () => {
+            if (!user || !customerData.id) return;
+
+            if (customerData.archived) {
+              await unarchiveCustomer(user.id, customerData.id);
+              setCustomerData({ ...customerData, archived: 0 });
+              Alert.alert("Success", "Customer has been unarchived.");
+            } else {
+              await archiveCustomer(user.id, customerData.id);
+              setCustomerData({ ...customerData, archived: 1 });
+              Alert.alert("Success", "Customer has been archived.");
+            }
+
+            appEvents.emit("customerUpdated");
+          },
+        },
+      ]
+    );
+  };
+
   const balance = transactions.reduce((bal, t) => {
     return t.type === "credit" ? bal + t.amount : bal - t.amount;
   }, 0);
@@ -281,19 +320,30 @@ export default function CustomerDetailScreen() {
     <Screen>
       <View style={styles.container}>
         {/* Back Button Header */}
+        {/* Back Button Header */}
         <View style={styles.headerContainer}>
           <TouchableOpacity
             onPress={() => router.replace("/(tabs)/ledger")}
             style={styles.backButton}
           >
-
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.headerText}>
-            <Text style={styles.customerName}>{customer.name}</Text>
+            <Text style={styles.customerName}>{customerData.name}</Text>
             <Text style={styles.customerTag}>Customer ledger</Text>
           </View>
+          <TouchableOpacity
+            onPress={handleArchiveCustomer}
+            style={styles.archiveButton}
+          >
+            <Ionicons
+              name={customerData.archived ? "arrow-undo-outline" : "archive-outline"}
+              size={24}
+              color={customerData.archived ? colors.accent : colors.text}
+            />
+          </TouchableOpacity>
         </View>
+
 
         <Card style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Current balance</Text>
@@ -500,6 +550,12 @@ const styles = StyleSheet.create({
     marginRight: 12,
     padding: 4,
   },
+
+  archiveButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+
   headerText: {
     flex: 1,
   },

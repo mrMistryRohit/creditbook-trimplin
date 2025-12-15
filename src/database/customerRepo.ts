@@ -56,6 +56,16 @@ export const archiveCustomer = async (
   );
 };
 
+export const unarchiveCustomer = async (
+  userId: number,
+  customerId: number
+): Promise<void> => {
+  await db.runAsync(
+    "UPDATE customers SET archived = 0 WHERE id = ? AND user_id = ?",
+    [customerId, userId]
+  );
+};
+
 export const deleteCustomer = async (
   userId: number,
   customerId: number

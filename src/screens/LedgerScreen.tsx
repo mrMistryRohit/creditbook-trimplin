@@ -30,11 +30,12 @@ export default function LedgerScreen() {
   // Customers
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
+  const [archivedCustomersCount, setArchivedCustomersCount] = useState(0);
 
   // Suppliers
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [filteredSuppliers, setFilteredSuppliers] = useState<Supplier[]>([]);
-  const [showArchived, setShowArchived] = useState(false);
+  const [archivedSuppliersCount, setArchivedSuppliersCount] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -44,12 +45,21 @@ export default function LedgerScreen() {
   const loadData = async () => {
     if (!user) return;
     setLoading(true);
-    const [customerList, supplierList] = await Promise.all([
-      getCustomersByUser(user.id, showArchived),
-      getSuppliersByUser(user.id, showArchived),
-    ]);
-    setCustomers(customerList);
-    setSuppliers(supplierList);
+    const [activeCustomers, archivedCustomers, activeSuppliers, archivedSuppliers] =
+      await Promise.all([
+        getCustomersByUser(user.id, false),
+        getCustomersByUser(user.id, true),
+        getSuppliersByUser(user.id, false),
+        getSuppliersByUser(user.id, true),
+      ]);
+
+    setCustomers(activeCustomers);
+    setSuppliers(activeSuppliers);
+
+    // Count only archived ones
+    setArchivedCustomersCount(archivedCustomers.filter(c => c.archived === 1).length);
+    setArchivedSuppliersCount(archivedSuppliers.filter(s => s.archived === 1).length);
+
     setLoading(false);
   };
 
@@ -66,7 +76,7 @@ export default function LedgerScreen() {
       appEvents.off("customerUpdated", handler);
       appEvents.off("supplierUpdated", handler);
     };
-  }, [user?.id, showArchived]);
+  }, [user?.id]);
 
   // Apply search and sort for customers
   useEffect(() => {
@@ -156,6 +166,14 @@ export default function LedgerScreen() {
     }
   };
 
+  const handleArchivePress = () => {
+    if (activeTab === "customers") {
+      router.push("/archived-customers");
+    } else {
+      router.push("/archived-suppliers");
+    }
+  };
+
   const handleSortPress = (column: SortOption) => {
     if (sortBy === column) {
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
@@ -172,7 +190,34 @@ export default function LedgerScreen() {
         name={sortOrder === "asc" ? "arrow-down" : "arrow-up"}
         size={12}
         color={sortBy === column ? "white" : colors.textMuted}
+        style={{ marginLeft: 4 }}
       />
+    );
+  };
+
+  const renderArchiveCard = () => {
+    const count = activeTab === "customers" ? archivedCustomersCount : archivedSuppliersCount;
+
+    if (count === 0) return null;
+
+    return (
+      <TouchableOpacity
+        style={styles.archiveCard}
+        onPress={handleArchivePress}
+        activeOpacity={0.7}
+      >
+        <View style={styles.archiveIcon}>
+          <Ionicons name="archive" size={22} color={colors.accent} />
+        </View>
+        <View style={styles.archiveInfo}>
+          <Text style={styles.archiveTitle}>Archived</Text>
+          <Text style={styles.archiveSubtitle}>
+            {count} archived {activeTab === "customers" ? "customer" : "supplier"}
+            {count > 1 ? "s" : ""}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+      </TouchableOpacity>
     );
   };
 
@@ -201,8 +246,8 @@ export default function LedgerScreen() {
                   ? styles.customerDue
                   : styles.customerAdvance
                 : isDue
-                ? styles.supplierPayable
-                : styles.supplierReceivable,
+                  ? styles.supplierPayable
+                  : styles.supplierReceivable,
             ]}
           >
             ₹ {Math.abs(item.balance).toLocaleString("en-IN")}
@@ -213,8 +258,8 @@ export default function LedgerScreen() {
                 ? "You will get"
                 : "You will give"
               : isDue
-              ? "You will pay"
-              : "You will get"}
+                ? "You will pay"
+                : "You will get"}
           </Text>
         </View>
       </TouchableOpacity>
@@ -223,8 +268,6 @@ export default function LedgerScreen() {
 
   const currentData =
     activeTab === "customers" ? filteredCustomers : filteredSuppliers;
-  const currentCount =
-    activeTab === "customers" ? customers.length : suppliers.length;
 
   return (
     <Screen>
@@ -244,21 +287,6 @@ export default function LedgerScreen() {
           onChangeText={setSearchQuery}
         />
 
-        {/* View Archived Toggle */}
-        <TouchableOpacity
-          style={styles.archivedToggle}
-          onPress={() => setShowArchived(!showArchived)}
-        >
-          <Ionicons
-            name={showArchived ? "eye-off-outline" : "eye-outline"}
-            size={20}
-            color={colors.textMuted}
-          />
-          <Text style={styles.archivedToggleText}>
-            {showArchived ? "Hide Archived" : "Show Archived"}
-          </Text>
-        </TouchableOpacity>
-
         {/* Sort Tabs */}
         <View style={styles.sortRow}>
           <TouchableOpacity
@@ -268,14 +296,17 @@ export default function LedgerScreen() {
             ]}
             onPress={() => handleSortPress("date")}
           >
-            <Text
-              style={[
-                styles.sortText,
-                sortBy === "date" && styles.sortTextActive,
-              ]}
-            >
-              Date{renderSortArrow("date")}
-            </Text>
+            <View style={styles.sortButtonContent}>
+              <Text
+                style={[
+                  styles.sortText,
+                  sortBy === "date" && styles.sortTextActive,
+                ]}
+              >
+                Date
+              </Text>
+              {renderSortArrow("date")}
+            </View>
           </TouchableOpacity>
           <TouchableOpacity
             style={[
@@ -284,14 +315,17 @@ export default function LedgerScreen() {
             ]}
             onPress={() => handleSortPress("name")}
           >
-            <Text
-              style={[
-                styles.sortText,
-                sortBy === "name" && styles.sortTextActive,
-              ]}
-            >
-              Name{renderSortArrow("name")}
-            </Text>
+            <View style={styles.sortButtonContent}>
+              <Text
+                style={[
+                  styles.sortText,
+                  sortBy === "name" && styles.sortTextActive,
+                ]}
+              >
+                Name
+              </Text>
+              {renderSortArrow("name")}
+            </View>
           </TouchableOpacity>
           <TouchableOpacity
             style={[
@@ -300,14 +334,17 @@ export default function LedgerScreen() {
             ]}
             onPress={() => handleSortPress("amount")}
           >
-            <Text
-              style={[
-                styles.sortText,
-                sortBy === "amount" && styles.sortTextActive,
-              ]}
-            >
-              Amount{renderSortArrow("amount")}
-            </Text>
+            <View style={styles.sortButtonContent}>
+              <Text
+                style={[
+                  styles.sortText,
+                  sortBy === "amount" && styles.sortTextActive,
+                ]}
+              >
+                Amount
+              </Text>
+              {renderSortArrow("amount")}
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -347,11 +384,12 @@ export default function LedgerScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* List */}
+        {/* List with Archive Card */}
         <FlatList
           data={currentData}
           keyExtractor={(item) => `${activeTab}-${item.id}`}
           renderItem={renderItem}
+          ListHeaderComponent={renderArchiveCard}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -399,20 +437,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  archivedToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    marginBottom: 12,
-    gap: 8,
-  },
-  archivedToggleText: {
-    color: colors.textMuted,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
   sortRow: {
     flexDirection: "row",
     gap: 8,
@@ -424,12 +448,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.inputBackground,
     borderRadius: 10,
     alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: colors.border,
   },
   sortButtonActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
+  },
+  sortButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
   },
   sortText: {
     color: colors.textMuted,
@@ -463,6 +493,37 @@ const styles = StyleSheet.create({
   tabButtonTextActive: {
     color: colors.accent,
     fontWeight: "700",
+  },
+  archiveCard: {
+    backgroundColor: colors.inputBackground,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  archiveIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.card,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  archiveInfo: {
+    flex: 1,
+  },
+  archiveTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  archiveSubtitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginTop: 2,
   },
   listContent: {
     paddingBottom: 120,
