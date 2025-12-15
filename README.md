@@ -137,7 +137,3 @@ creditbook-trimplin
 ├─ 📄README.md
 └─ 📄tsconfig.json
 ```
-
-
-
-
