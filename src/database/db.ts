@@ -75,8 +75,9 @@ export const initDB = async () => {
       CREATE INDEX IF NOT EXISTS idx_supplier_transactions_user ON supplier_transactions(user_id);
     `);
 
-    // Migration: Add archived column if it doesn't exist
+    // Migrations
     await migrateAddArchivedColumn();
+    await migrateRenamePasswordColumn();
 
     console.log("Database initialized successfully");
   } catch (error) {
@@ -87,13 +88,11 @@ export const initDB = async () => {
 
 const migrateAddArchivedColumn = async () => {
   try {
-    // Check if archived column exists
     const result = await db.getFirstAsync<{ count: number }>(
       `SELECT COUNT(*) as count FROM pragma_table_info('customers') WHERE name='archived'`
     );
 
     if (result && result.count === 0) {
-      // Column doesn't exist, add it
       await db.execAsync(`
         ALTER TABLE customers ADD COLUMN archived INTEGER DEFAULT 0;
       `);
@@ -103,6 +102,55 @@ const migrateAddArchivedColumn = async () => {
     }
   } catch (error) {
     console.error("Migration error:", error);
+  }
+};
+
+const migrateRenamePasswordColumn = async () => {
+  try {
+    // Check if password_hash column exists
+    const result = await db.getFirstAsync<{ count: number }>(
+      `SELECT COUNT(*) as count FROM pragma_table_info('users') WHERE name='password_hash'`
+    );
+
+    if (result && result.count === 0) {
+      // password_hash doesn't exist, check if password column exists
+      const passwordExists = await db.getFirstAsync<{ count: number }>(
+        `SELECT COUNT(*) as count FROM pragma_table_info('users') WHERE name='password'`
+      );
+
+      if (passwordExists && passwordExists.count > 0) {
+        // Rename password to password_hash
+        // SQLite doesn't support RENAME COLUMN directly in older versions
+        // We need to recreate the table
+        await db.execAsync(`
+          -- Create new table with correct schema
+          CREATE TABLE users_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            phone TEXT,
+            shop_name TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+
+          -- Copy data from old table
+          INSERT INTO users_new (id, name, email, password_hash, phone, shop_name, created_at)
+          SELECT id, name, email, password, phone, shop_name, created_at FROM users;
+
+          -- Drop old table
+          DROP TABLE users;
+
+          -- Rename new table
+          ALTER TABLE users_new RENAME TO users;
+        `);
+        console.log("Migration: Renamed password column to password_hash");
+      }
+    } else {
+      console.log("Migration: password_hash column already exists");
+    }
+  } catch (error) {
+    console.error("Migration error (password_hash):", error);
   }
 };
 
