@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -215,9 +216,20 @@ export default function HomeScreen() {
     }
   };
 
+  // const renderSortArrow = (column: SortOption) => {
+  //   if (sortBy !== column) return null;
+  //   return sortOrder === "asc" ? " ↓" : " ↑";
+  // };
+
   const renderSortArrow = (column: SortOption) => {
     if (sortBy !== column) return null;
-    return sortOrder === "asc" ? " ↓" : " ↑";
+    return (
+      <Ionicons
+        name={sortOrder === "asc" ? "arrow-down" : "arrow-up"}
+        size={12}
+        color={sortBy === column ? "white" : colors.textMuted}
+      />
+    );
   };
 
   const renderItem = ({ item }: { item: Customer | Supplier }) => {
@@ -245,8 +257,8 @@ export default function HomeScreen() {
                   ? styles.due
                   : styles.advance
                 : isDue
-                  ? styles.payable
-                  : styles.receivable,
+                ? styles.payable
+                : styles.receivable,
             ]}
           >
             ₹ {Math.abs(item.balance).toLocaleString("en-IN")}
@@ -257,8 +269,8 @@ export default function HomeScreen() {
                 ? "You will get"
                 : "You will give"
               : isDue
-                ? "You will pay"
-                : "You will get"}
+              ? "You will pay"
+              : "You will get"}
           </Text>
         </View>
       </TouchableOpacity>
@@ -291,7 +303,8 @@ export default function HomeScreen() {
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Total you will get</Text>
               <Text style={[styles.summaryValue, styles.due]}>
-                ₹ {(totalDue + Math.abs(totalReceivable)).toLocaleString("en-IN")}
+                ₹{" "}
+                {(totalDue + Math.abs(totalReceivable)).toLocaleString("en-IN")}
               </Text>
               <Text style={styles.summaryBreakdown}>
                 Customers: ₹{totalDue.toLocaleString("en-IN")}
@@ -302,7 +315,10 @@ export default function HomeScreen() {
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Total you will give</Text>
               <Text style={[styles.summaryValue, styles.advance]}>
-                ₹ {(Math.abs(totalAdvance) + totalPayable).toLocaleString("en-IN")}
+                ₹{" "}
+                {(Math.abs(totalAdvance) + totalPayable).toLocaleString(
+                  "en-IN"
+                )}
               </Text>
               <Text style={styles.summaryBreakdown}>
                 Customers: ₹{Math.abs(totalAdvance).toLocaleString("en-IN")}
@@ -326,7 +342,6 @@ export default function HomeScreen() {
             />
           </View>
         </Card>
-
 
         {/* Search Bar */}
         <TextInput
@@ -439,8 +454,9 @@ export default function HomeScreen() {
                 <Text style={styles.emptyText}>
                   {searchQuery
                     ? `No ${activeTab} found for your search.`
-                    : `No ${activeTab} yet. Tap "+ Add ${activeTab === "customers" ? "customer" : "supplier"
-                    }" to create one.`}
+                    : `No ${activeTab} yet. Tap "+ Add ${
+                        activeTab === "customers" ? "customer" : "supplier"
+                      }" to create one.`}
                 </Text>
               </View>
             ) : null

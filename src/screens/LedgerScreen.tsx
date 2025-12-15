@@ -12,14 +12,8 @@ import {
 import { colors, spacing, typography } from "../../constants/theme";
 import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
-import {
-  Customer,
-  getCustomersByUser,
-} from "../database/customerRepo";
-import {
-  Supplier,
-  getSuppliersByUser,
-} from "../database/supplierRepo";
+import { Customer, getCustomersByUser } from "../database/customerRepo";
+import { Supplier, getSuppliersByUser } from "../database/supplierRepo";
 import { appEvents } from "../utils/events";
 
 type SortOption = "date" | "name" | "amount";
@@ -41,7 +35,6 @@ export default function LedgerScreen() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [filteredSuppliers, setFilteredSuppliers] = useState<Supplier[]>([]);
   const [showArchived, setShowArchived] = useState(false);
-
 
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -174,7 +167,13 @@ export default function LedgerScreen() {
 
   const renderSortArrow = (column: SortOption) => {
     if (sortBy !== column) return null;
-    return sortOrder === "asc" ? " ↓" : " ↑";
+    return (
+      <Ionicons
+        name={sortOrder === "asc" ? "arrow-down" : "arrow-up"}
+        size={12}
+        color={sortBy === column ? "white" : colors.textMuted}
+      />
+    );
   };
 
   const renderItem = ({ item }: { item: Customer | Supplier }) => {
@@ -202,8 +201,8 @@ export default function LedgerScreen() {
                   ? styles.customerDue
                   : styles.customerAdvance
                 : isDue
-                  ? styles.supplierPayable
-                  : styles.supplierReceivable,
+                ? styles.supplierPayable
+                : styles.supplierReceivable,
             ]}
           >
             ₹ {Math.abs(item.balance).toLocaleString("en-IN")}
@@ -214,16 +213,18 @@ export default function LedgerScreen() {
                 ? "You will get"
                 : "You will give"
               : isDue
-                ? "You will pay"
-                : "You will get"}
+              ? "You will pay"
+              : "You will get"}
           </Text>
         </View>
       </TouchableOpacity>
     );
   };
 
-  const currentData = activeTab === "customers" ? filteredCustomers : filteredSuppliers;
-  const currentCount = activeTab === "customers" ? customers.length : suppliers.length;
+  const currentData =
+    activeTab === "customers" ? filteredCustomers : filteredSuppliers;
+  const currentCount =
+    activeTab === "customers" ? customers.length : suppliers.length;
 
   return (
     <Screen>
@@ -258,35 +259,52 @@ export default function LedgerScreen() {
           </Text>
         </TouchableOpacity>
 
-
         {/* Sort Tabs */}
         <View style={styles.sortRow}>
           <TouchableOpacity
-            style={[styles.sortButton, sortBy === "date" && styles.sortButtonActive]}
+            style={[
+              styles.sortButton,
+              sortBy === "date" && styles.sortButtonActive,
+            ]}
             onPress={() => handleSortPress("date")}
           >
             <Text
-              style={[styles.sortText, sortBy === "date" && styles.sortTextActive]}
+              style={[
+                styles.sortText,
+                sortBy === "date" && styles.sortTextActive,
+              ]}
             >
               Date{renderSortArrow("date")}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.sortButton, sortBy === "name" && styles.sortButtonActive]}
+            style={[
+              styles.sortButton,
+              sortBy === "name" && styles.sortButtonActive,
+            ]}
             onPress={() => handleSortPress("name")}
           >
             <Text
-              style={[styles.sortText, sortBy === "name" && styles.sortTextActive]}
+              style={[
+                styles.sortText,
+                sortBy === "name" && styles.sortTextActive,
+              ]}
             >
               Name{renderSortArrow("name")}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.sortButton, sortBy === "amount" && styles.sortButtonActive]}
+            style={[
+              styles.sortButton,
+              sortBy === "amount" && styles.sortButtonActive,
+            ]}
             onPress={() => handleSortPress("amount")}
           >
             <Text
-              style={[styles.sortText, sortBy === "amount" && styles.sortTextActive]}
+              style={[
+                styles.sortText,
+                sortBy === "amount" && styles.sortTextActive,
+              ]}
             >
               Amount{renderSortArrow("amount")}
             </Text>
