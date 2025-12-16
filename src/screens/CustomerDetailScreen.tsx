@@ -20,11 +20,11 @@ import { useAuth } from "../context/AuthContext";
 import {
   Transaction,
   addTransactionForCustomer,
-  deleteTransaction,
   getTransactionsForCustomer,
-  updateTransaction,
 } from "../database/transactionRepo";
 import {
+  updateCustomer,
+  deleteCustomer,
   archiveCustomer,
   unarchiveCustomer,
   Customer,
@@ -49,7 +49,7 @@ export default function CustomerDetailScreen() {
 
   const customer: CustomerParam = params.customer
     ? JSON.parse(params.customer as string)
-    : { id: 0, name: "Unknown Customer", balance: 0 };
+    : { id: 0, user_id: 0, name: "Unknown Customer", balance: 0, archived: 0 };
 
   const [customerData, setCustomerData] = useState<Customer>(customer);
 
@@ -60,12 +60,10 @@ export default function CustomerDetailScreen() {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
 
-  // Edit modal state
-  const [editVisible, setEditVisible] = useState(false);
-  const [editingTxn, setEditingTxn] = useState<Transaction | null>(null);
-  const [editAmount, setEditAmount] = useState("");
-  const [editNote, setEditNote] = useState("");
-  const [editType, setEditType] = useState<"credit" | "debit">("credit");
+  // Edit customer modal state
+  const [editCustomerVisible, setEditCustomerVisible] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
 
   const loadTransactions = async () => {
     if (!user || !customer.id) return;
@@ -87,8 +85,6 @@ export default function CustomerDetailScreen() {
     );
     return () => backHandler.remove();
   }, []);
-
-
 
   // Apply date filter
   useEffect(() => {
@@ -162,68 +158,6 @@ export default function CustomerDetailScreen() {
     await loadTransactions();
   };
 
-  const handleEditPress = (txn: Transaction) => {
-    setEditingTxn(txn);
-    setEditAmount(txn.amount.toString());
-    setEditNote(txn.note || "");
-    setEditType(txn.type);
-    setEditVisible(true);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!user || !customer.id || !editingTxn) return;
-    const amt = Number(editAmount);
-    if (Number.isNaN(amt) || amt <= 0) {
-      Alert.alert("Invalid amount");
-      return;
-    }
-
-    const now = new Date().toLocaleString("en-IN");
-
-    await updateTransaction(
-      user.id,
-      customer.id,
-      editingTxn.id,
-      editingTxn.type,
-      editingTxn.amount,
-      editType,
-      amt,
-      editNote,
-      now
-    );
-
-    appEvents.emit("customerUpdated");
-    setEditVisible(false);
-    setEditingTxn(null);
-    await loadTransactions();
-  };
-
-  const handleDeletePress = (txn: Transaction) => {
-    Alert.alert(
-      "Delete Transaction",
-      "Are you sure you want to delete this transaction?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            if (!user || !customer.id) return;
-            await deleteTransaction(
-              user.id,
-              customer.id,
-              txn.id,
-              txn.type,
-              txn.amount
-            );
-            appEvents.emit("customerUpdated");
-            await loadTransactions();
-          },
-        },
-      ]
-    );
-  };
-
   const handleArchiveCustomer = () => {
     Alert.alert(
       customerData.archived ? "Unarchive Customer" : "Archive Customer",
@@ -254,6 +188,68 @@ export default function CustomerDetailScreen() {
     );
   };
 
+  const handleEditCustomer = () => {
+    setEditName(customerData.name);
+    setEditPhone(customerData.phone || "");
+    setEditCustomerVisible(true);
+  };
+
+  const handleSaveCustomer = async () => {
+    if (!user || !customerData.id) return;
+    if (!editName.trim()) {
+      Alert.alert("Error", "Customer name is required");
+      return;
+    }
+
+    await updateCustomer(user.id, customerData.id, editName.trim(), editPhone.trim());
+    setCustomerData({ ...customerData, name: editName.trim(), phone: editPhone.trim() });
+    appEvents.emit("customerUpdated");
+    setEditCustomerVisible(false);
+    Alert.alert("Success", "Customer details updated successfully");
+  };
+
+  const handleDeleteCustomer = () => {
+    // Calculate current balance
+    const currentBalance = transactions.reduce((bal, t) => {
+      return t.type === "credit" ? bal + t.amount : bal - t.amount;
+    }, 0);
+
+    // Check if balance is not zero
+    if (currentBalance !== 0) {
+      const absBalance = Math.abs(currentBalance);
+      const message = currentBalance > 0
+        ? `Customer still owes ₹${absBalance.toLocaleString("en-IN")} to you`
+        : `You still owe ₹${absBalance.toLocaleString("en-IN")} to the customer`;
+
+      Alert.alert("Cannot Delete", message);
+      return;
+    }
+
+    // Proceed with delete if balance is zero
+    Alert.alert(
+      "Delete Customer",
+      "Are you sure you want to delete this customer? This will also delete all transactions.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            if (!user || !customerData.id) return;
+            await deleteCustomer(user.id, customerData.id);
+            appEvents.emit("customerUpdated");
+            Alert.alert("Deleted", "Customer has been deleted", [
+              {
+                text: "OK",
+                onPress: () => router.replace("/(tabs)/ledger"),
+              },
+            ]);
+          },
+        },
+      ]
+    );
+  };
+
   const balance = transactions.reduce((bal, t) => {
     return t.type === "credit" ? bal + t.amount : bal - t.amount;
   }, 0);
@@ -272,45 +268,24 @@ export default function CustomerDetailScreen() {
           },
         ]}
       >
-        <TouchableOpacity
-          onLongPress={() => handleEditPress(item)}
-          activeOpacity={0.8}
-        >
-          <View style={styles.txnRow}>
-            <View style={styles.txnInfo}>
-              <Text style={styles.txnNote}>{item.note || ""}</Text>
-              <Text style={styles.txnDate}>{item.date}</Text>
-            </View>
-            <View style={styles.amountBlock}>
-              <Text
-                style={[
-                  styles.txnAmount,
-                  isCredit ? styles.credit : styles.debit,
-                ]}
-              >
-                {isCredit ? "+" : "-"} ₹ {item.amount.toLocaleString("en-IN")}
-              </Text>
-              <Text style={styles.txnType}>
-                {isCredit ? "You gave udhar" : "You received payment"}
-              </Text>
-            </View>
+        <View style={styles.txnRow}>
+          <View style={styles.txnInfo}>
+            <Text style={styles.txnNote}>{item.note || ""}</Text>
+            <Text style={styles.txnDate}>{item.date}</Text>
           </View>
-        </TouchableOpacity>
-        <View style={styles.txnActions}>
-          <TouchableOpacity
-            onPress={() => handleEditPress(item)}
-            style={styles.actionButton}
-          >
-            <Text style={styles.actionText}>Edit</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => handleDeletePress(item)}
-            style={styles.actionButton}
-          >
-            <Text style={[styles.actionText, { color: colors.danger }]}>
-              Delete
+          <View style={styles.amountBlock}>
+            <Text
+              style={[
+                styles.txnAmount,
+                isCredit ? styles.credit : styles.debit,
+              ]}
+            >
+              {isCredit ? "+" : "-"} ₹ {item.amount.toLocaleString("en-IN")}
             </Text>
-          </TouchableOpacity>
+            <Text style={styles.txnType}>
+              {isCredit ? "You gave udhar" : "You received payment"}
+            </Text>
+          </View>
         </View>
       </Card>
     );
@@ -319,7 +294,6 @@ export default function CustomerDetailScreen() {
   return (
     <Screen>
       <View style={styles.container}>
-        {/* Back Button Header */}
         {/* Back Button Header */}
         <View style={styles.headerContainer}>
           <TouchableOpacity
@@ -333,17 +307,28 @@ export default function CustomerDetailScreen() {
             <Text style={styles.customerTag}>Customer ledger</Text>
           </View>
           <TouchableOpacity
+            onPress={handleEditCustomer}
+            style={styles.iconButton}
+          >
+            <Ionicons name="create-outline" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={handleArchiveCustomer}
             style={styles.archiveButton}
           >
             <Ionicons
               name={customerData.archived ? "arrow-undo-outline" : "archive-outline"}
-              size={24}
+              size={22}
               color={customerData.archived ? colors.accent : colors.text}
             />
           </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleDeleteCustomer}
+            style={styles.iconButton}
+          >
+            <Ionicons name="trash-outline" size={22} color={colors.danger} />
+          </TouchableOpacity>
         </View>
-
 
         <Card style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Current balance</Text>
@@ -474,58 +459,38 @@ export default function CustomerDetailScreen() {
           }
         />
 
-        {/* Edit Modal */}
-        <Modal visible={editVisible} transparent animationType="slide">
+        {/* Edit Customer Modal */}
+        <Modal visible={editCustomerVisible} transparent animationType="slide">
           <View style={styles.modalBackdrop}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Edit Transaction</Text>
-
-              <View style={styles.typeSelector}>
-                <TouchableOpacity
-                  style={[
-                    styles.typeButton,
-                    editType === "credit" && styles.typeButtonActive,
-                  ]}
-                  onPress={() => setEditType("credit")}
-                >
-                  <Text style={styles.typeText}>You gave udhar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.typeButton,
-                    editType === "debit" && styles.typeButtonActive,
-                  ]}
-                  onPress={() => setEditType("debit")}
-                >
-                  <Text style={styles.typeText}>You received</Text>
-                </TouchableOpacity>
-              </View>
+              <Text style={styles.modalTitle}>Edit Customer</Text>
 
               <TextInput
                 style={styles.modalInput}
-                placeholder="Amount"
+                placeholder="Customer Name *"
                 placeholderTextColor={colors.textMuted}
-                keyboardType="numeric"
-                value={editAmount}
-                onChangeText={setEditAmount}
+                value={editName}
+                onChangeText={setEditName}
               />
               <TextInput
                 style={styles.modalInput}
-                placeholder="Note"
+                placeholder="Phone Number (optional)"
                 placeholderTextColor={colors.textMuted}
-                value={editNote}
-                onChangeText={setEditNote}
+                keyboardType="phone-pad"
+                value={editPhone}
+                onChangeText={setEditPhone}
               />
+
               <View style={styles.modalButtons}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.cancelButton]}
-                  onPress={() => setEditVisible(false)}
+                  onPress={() => setEditCustomerVisible(false)}
                 >
                   <Text style={styles.cancelText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.saveButton]}
-                  onPress={handleSaveEdit}
+                  onPress={handleSaveCustomer}
                 >
                   <Text style={styles.saveText}>Save</Text>
                 </TouchableOpacity>
@@ -550,12 +515,14 @@ const styles = StyleSheet.create({
     marginRight: 12,
     padding: 4,
   },
-
+  iconButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
   archiveButton: {
     padding: 4,
     marginLeft: 8,
   },
-
   headerText: {
     flex: 1,
   },
@@ -640,14 +607,6 @@ const styles = StyleSheet.create({
   amountBlock: { alignItems: "flex-end" },
   txnAmount: { fontSize: typography.body, fontWeight: "700" },
   txnType: { color: colors.textMuted, fontSize: typography.small },
-  txnActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 8,
-    gap: 12,
-  },
-  actionButton: { paddingVertical: 4 },
-  actionText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   emptyText: {
     color: colors.textMuted,
     fontSize: typography.small,
@@ -672,16 +631,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: 16,
   },
-  typeSelector: { flexDirection: "row", gap: 8, marginBottom: 12 },
-  typeButton: {
-    flex: 1,
-    paddingVertical: 10,
-    backgroundColor: colors.inputBackground,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  typeButtonActive: { backgroundColor: colors.primary },
-  typeText: { color: colors.text, fontSize: 13 },
   modalInput: {
     backgroundColor: colors.inputBackground,
     borderRadius: 12,

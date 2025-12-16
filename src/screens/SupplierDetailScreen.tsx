@@ -27,10 +27,8 @@ import {
 } from "../database/supplierRepo";
 import {
     addSupplierTransaction,
-    deleteSupplierTransaction,
     getTransactionsForSupplier,
     SupplierTransaction,
-    updateSupplierTransaction,
 } from "../database/supplierTransactionRepo";
 import { appEvents } from "../utils/events";
 
@@ -50,7 +48,6 @@ export default function SupplierDetailScreen() {
     // Modals
     const [addVisible, setAddVisible] = useState(false);
     const [editVisible, setEditVisible] = useState(false);
-    const [editTransactionVisible, setEditTransactionVisible] = useState(false);
 
     // Form states
     const [amount, setAmount] = useState("");
@@ -62,13 +59,6 @@ export default function SupplierDetailScreen() {
     // Edit supplier
     const [editName, setEditName] = useState("");
     const [editPhone, setEditPhone] = useState("");
-
-    // Edit transaction
-    const [editingTransaction, setEditingTransaction] =
-        useState<SupplierTransaction | null>(null);
-    const [editAmount, setEditAmount] = useState("");
-    const [editNote, setEditNote] = useState("");
-    const [editType, setEditType] = useState<"credit" | "debit">("credit");
 
     const loadTransactions = async () => {
         if (!user || !supplier) return;
@@ -148,83 +138,6 @@ export default function SupplierDetailScreen() {
         setEditVisible(true);
     };
 
-    const openEditTransaction = (txn: SupplierTransaction) => {
-        setEditingTransaction(txn);
-        setEditAmount(txn.amount.toString());
-        setEditNote(txn.note || "");
-        setEditType(txn.type);
-        setEditTransactionVisible(true);
-    };
-
-    const handleUpdateTransaction = async () => {
-        if (!user || !supplier || !editingTransaction || !editAmount.trim()) return;
-
-        const amountNum = parseFloat(editAmount);
-        if (isNaN(amountNum) || amountNum <= 0) {
-            Alert.alert("Invalid Amount", "Please enter a valid amount.");
-            return;
-        }
-
-        await updateSupplierTransaction(
-            user.id,
-            supplier.id,
-            editingTransaction.id,
-            editingTransaction.type,
-            editingTransaction.amount,
-            editType,
-            amountNum,
-            editNote.trim(),
-            editingTransaction.date
-        );
-
-        setEditTransactionVisible(false);
-        await loadTransactions();
-        appEvents.emit("supplierUpdated");
-
-        // Recalculate balance
-        const oldDelta =
-            editingTransaction.type === "credit"
-                ? -editingTransaction.amount
-                : editingTransaction.amount;
-        const newDelta = editType === "credit" ? amountNum : -amountNum;
-        const netDelta = oldDelta + newDelta;
-
-        setSupplier((prev) =>
-            prev ? { ...prev, balance: prev.balance + netDelta } : null
-        );
-    };
-
-    const handleDeleteTransaction = (txn: SupplierTransaction) => {
-        Alert.alert(
-            "Delete Transaction",
-            "Are you sure you want to delete this transaction?",
-            [
-                { text: "Cancel", style: "cancel" },
-                {
-                    text: "Delete",
-                    style: "destructive",
-                    onPress: async () => {
-                        if (!user || !supplier) return;
-                        await deleteSupplierTransaction(
-                            user.id,
-                            supplier.id,
-                            txn.id,
-                            txn.type,
-                            txn.amount
-                        );
-                        await loadTransactions();
-                        appEvents.emit("supplierUpdated");
-
-                        const delta = txn.type === "credit" ? -txn.amount : txn.amount;
-                        setSupplier((prev) =>
-                            prev ? { ...prev, balance: prev.balance + delta } : null
-                        );
-                    },
-                },
-            ]
-        );
-    };
-
     const handleArchiveSupplier = () => {
         Alert.alert(
             "Archive Supplier",
@@ -254,6 +167,23 @@ export default function SupplierDetailScreen() {
     };
 
     const handleDeleteSupplier = () => {
+        // Calculate current balance
+        const currentBalance = transactions.reduce((bal, t) => {
+            return t.type === "credit" ? bal + t.amount : bal - t.amount;
+        }, 0);
+
+        // Check if balance is not zero
+        if (currentBalance !== 0) {
+            const absBalance = Math.abs(currentBalance);
+            const message = currentBalance > 0
+                ? `You still owe ₹${absBalance.toLocaleString("en-IN")} to the supplier`
+                : `Supplier still owes ₹${absBalance.toLocaleString("en-IN")} to you`;
+
+            Alert.alert("Cannot Delete", message);
+            return;
+        }
+
+        // Proceed with delete if balance is zero
         Alert.alert(
             "Delete Supplier",
             "Are you sure you want to permanently delete this supplier and all transactions?",
@@ -276,11 +206,7 @@ export default function SupplierDetailScreen() {
     const renderTransaction = ({ item }: { item: SupplierTransaction }) => {
         const isCredit = item.type === "credit";
         return (
-            <TouchableOpacity
-                style={styles.transactionCard}
-                onPress={() => openEditTransaction(item)}
-                activeOpacity={0.7}
-            >
+            <View style={styles.transactionCard}>
                 <View style={styles.transactionLeft}>
                     <View
                         style={[
@@ -310,14 +236,8 @@ export default function SupplierDetailScreen() {
                     >
                         {isCredit ? "+" : "-"}₹{item.amount.toLocaleString("en-IN")}
                     </Text>
-                    <TouchableOpacity
-                        onPress={() => handleDeleteTransaction(item)}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                        <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                    </TouchableOpacity>
                 </View>
-            </TouchableOpacity>
+            </View>
         );
     };
 
@@ -374,7 +294,6 @@ export default function SupplierDetailScreen() {
                             <Ionicons name="trash-outline" size={22} color={colors.danger} />
                         </TouchableOpacity>
                     </View>
-
                 </View>
 
                 {/* Supplier Info */}
@@ -549,86 +468,6 @@ export default function SupplierDetailScreen() {
                     </View>
                 </View>
             </Modal>
-
-            {/* Edit Transaction Modal */}
-            <Modal
-                visible={editTransactionVisible}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setEditTransactionVisible(false)}
-            >
-                <View style={styles.modalBackdrop}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Edit Transaction</Text>
-
-                        {/* Type Selector */}
-                        <View style={styles.typeSelector}>
-                            <TouchableOpacity
-                                style={[
-                                    styles.typeButton,
-                                    editType === "credit" && styles.typeButtonActive,
-                                ]}
-                                onPress={() => setEditType("credit")}
-                            >
-                                <Text
-                                    style={[
-                                        styles.typeText,
-                                        editType === "credit" && styles.typeTextActive,
-                                    ]}
-                                >
-                                    Goods Purchased
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[
-                                    styles.typeButton,
-                                    editType === "debit" && styles.typeButtonActive,
-                                ]}
-                                onPress={() => setEditType("debit")}
-                            >
-                                <Text
-                                    style={[
-                                        styles.typeText,
-                                        editType === "debit" && styles.typeTextActive,
-                                    ]}
-                                >
-                                    Payment Made
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Amount"
-                            placeholderTextColor={colors.textMuted}
-                            value={editAmount}
-                            onChangeText={setEditAmount}
-                            keyboardType="numeric"
-                        />
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Note (optional)"
-                            placeholderTextColor={colors.textMuted}
-                            value={editNote}
-                            onChangeText={setEditNote}
-                        />
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity
-                                style={[styles.modalButton, styles.cancelButton]}
-                                onPress={() => setEditTransactionVisible(false)}
-                            >
-                                <Text style={styles.cancelText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.modalButton, styles.saveButton]}
-                                onPress={handleUpdateTransaction}
-                            >
-                                <Text style={styles.saveText}>Update</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
         </Screen>
     );
 }
@@ -729,7 +568,6 @@ const styles = StyleSheet.create({
     },
     transactionRight: {
         alignItems: "flex-end",
-        gap: 8,
     },
     transactionAmount: {
         fontSize: 16,
