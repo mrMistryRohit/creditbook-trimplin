@@ -192,6 +192,7 @@ export default function HomeScreen() {
   const handleAddCustomer = async () => {
     if (!user || !newName.trim()) return;
     await addCustomer(user.id, newName.trim(), newPhone.trim());
+    appEvents.emit("customerUpdated");
     setNewName("");
     setNewPhone("");
     setAddCustomerVisible(false);
@@ -201,6 +202,7 @@ export default function HomeScreen() {
   const handleAddSupplier = async () => {
     if (!user || !newName.trim()) return;
     await addSupplier(user.id, newName.trim(), newPhone.trim());
+    appEvents.emit("supplierUpdated");
     setNewName("");
     setNewPhone("");
     setAddSupplierVisible(false);
