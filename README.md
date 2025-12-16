@@ -137,3 +137,15 @@ creditbook-trimplin
 ├─ 📄README.md
 └─ 📄tsconfig.json
 ```
+
+Build the APK:
+
+```
+ eas build:configure
+```
+
+then (for android apk)
+
+```
+eas build --platform android --profile preview
+```
