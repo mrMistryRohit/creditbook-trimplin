@@ -124,8 +124,10 @@ creditbook-trimplin
 │  │  ├─ 📄PrimaryButton.tsx
 │  │  └─ 📄Screen.tsx
 │  ├─ 📁context
-│  │  └─ 📄AuthContext.tsx
+│  │  ├─ 📄AuthContext.tsx
+│  │  └─ 📄BusinessContext.tsx
 │  ├─ 📁database
+│  │  ├─ 📄businessRepo.ts
 │  │  ├─ 📄customerRepo.ts
 │  │  ├─ 📄db.ts
 │  │  ├─ 📄reportsRepo.ts
