@@ -49,6 +49,18 @@ Join our community of developers creating universal apps.
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
 
+Build the APK:
+
+```
+ eas build:configure
+```
+
+then (for android apk)
+
+```
+eas build --platform android --profile preview
+```
+
 ```
 creditbook-trimplin
 ├─ 📁.expo
@@ -67,6 +79,8 @@ creditbook-trimplin
 │  │  ├─ 📄reports.tsx
 │  │  ├─ 📄settings.tsx
 │  │  └─ 📄_layout.tsx
+│  ├─ 📄archived-customers.tsx
+│  ├─ 📄archived-suppliers.tsx
 │  ├─ 📄customer-detail.tsx
 │  ├─ 📄modal.tsx
 │  ├─ 📄supplier-detail.tsx
@@ -120,6 +134,8 @@ creditbook-trimplin
 │  │  ├─ 📄transactionRepo.ts
 │  │  └─ 📄userRepo.ts
 │  ├─ 📁screens
+│  │  ├─ 📄ArchivedCustomersScreen.tsx
+│  │  ├─ 📄ArchivedSuppliersScreen.tsx
 │  │  ├─ 📄CustomerDetailScreen.tsx
 │  │  ├─ 📄HomeScreen.tsx
 │  │  ├─ 📄LedgerScreen.tsx
@@ -136,16 +152,4 @@ creditbook-trimplin
 ├─ 📄package.json
 ├─ 📄README.md
 └─ 📄tsconfig.json
-```
-
-Build the APK:
-
-```
- eas build:configure
-```
-
-then (for android apk)
-
-```
-eas build --platform android --profile preview
 ```
