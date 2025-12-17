@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   FlatList,
   Modal,
@@ -15,6 +15,7 @@ import Card from "../components/Card";
 import PrimaryButton from "../components/PrimaryButton";
 import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
+import { useBusiness } from "../context/BusinessContext";
 import {
   addCustomer,
   Customer,
@@ -34,6 +35,7 @@ type HomeTab = "customers" | "suppliers";
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { currentBusiness } = useBusiness();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<HomeTab>("customers");
@@ -57,32 +59,77 @@ export default function HomeScreen() {
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
 
-  const loadData = async () => {
-    if (!user) return;
-    setLoading(true);
-    const [customerList, supplierList] = await Promise.all([
-      getCustomersByUser(user.id),
-      getSuppliersByUser(user.id),
-    ]);
-    setCustomers(customerList);
-    setSuppliers(supplierList);
-    setLoading(false);
-  };
+  // ✅ Add reload trigger state
+  const [reloadTrigger, setReloadTrigger] = useState(0);
 
+  const loadData = useCallback(async () => {
+    console.log("🔄 HomeScreen loadData called");
+    console.log(
+      "Current Business:",
+      currentBusiness?.name,
+      "ID:",
+      currentBusiness?.id
+    );
+
+    if (!user || !currentBusiness) {
+      console.log("⚠️ Missing user or business");
+      return;
+    }
+
+    // Clear existing data immediately
+    setCustomers([]);
+    setSuppliers([]);
+    setFilteredCustomers([]);
+    setFilteredSuppliers([]);
+
+    setLoading(true);
+
+    try {
+      const [customerList, supplierList] = await Promise.all([
+        getCustomersByUser(user.id, currentBusiness.id),
+        getSuppliersByUser(user.id, currentBusiness.id),
+      ]);
+
+      console.log(
+        "✅ Loaded:",
+        customerList.length,
+        "customers,",
+        supplierList.length,
+        "suppliers for business:",
+        currentBusiness.id
+      );
+
+      setCustomers(customerList);
+      setSuppliers(supplierList);
+    } catch (error) {
+      console.error("❌ Error loading data:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id, currentBusiness?.id]);
+
+  // ✅ Load data when dependencies change OR reloadTrigger changes
   useEffect(() => {
     loadData();
+  }, [loadData, reloadTrigger]);
 
+  // ✅ Event handlers trigger state change instead of calling loadData directly
+  useEffect(() => {
     const handler = () => {
-      loadData();
+      console.log("📣 Home: Event received, triggering reload");
+      setReloadTrigger((prev) => prev + 1); // ✅ Increment to trigger reload
     };
 
     appEvents.on("customerUpdated", handler);
     appEvents.on("supplierUpdated", handler);
+    appEvents.on("businessSwitched", handler);
+
     return () => {
       appEvents.off("customerUpdated", handler);
       appEvents.off("supplierUpdated", handler);
+      appEvents.off("businessSwitched", handler);
     };
-  }, [user?.id]);
+  }, []); // ✅ Empty dependencies - handler never changes
 
   // Apply search and sort for customers
   useEffect(() => {
@@ -190,23 +237,31 @@ export default function HomeScreen() {
   };
 
   const handleAddCustomer = async () => {
-    if (!user || !newName.trim()) return;
-    await addCustomer(user.id, newName.trim(), newPhone.trim());
+    if (!user || !currentBusiness || !newName.trim()) return;
+    await addCustomer(
+      user.id,
+      currentBusiness.id,
+      newName.trim(),
+      newPhone.trim()
+    );
     appEvents.emit("customerUpdated");
     setNewName("");
     setNewPhone("");
     setAddCustomerVisible(false);
-    await loadData();
   };
 
   const handleAddSupplier = async () => {
-    if (!user || !newName.trim()) return;
-    await addSupplier(user.id, newName.trim(), newPhone.trim());
+    if (!user || !currentBusiness || !newName.trim()) return;
+    await addSupplier(
+      user.id,
+      currentBusiness.id,
+      newName.trim(),
+      newPhone.trim()
+    );
     appEvents.emit("supplierUpdated");
     setNewName("");
     setNewPhone("");
     setAddSupplierVisible(false);
-    await loadData();
   };
 
   const handleSortPress = (column: SortOption) => {
@@ -217,11 +272,6 @@ export default function HomeScreen() {
       setSortOrder("asc");
     }
   };
-
-  // const renderSortArrow = (column: SortOption) => {
-  //   if (sortBy !== column) return null;
-  //   return sortOrder === "asc" ? " ↓" : " ↑";
-  // };
 
   const renderSortArrow = (column: SortOption) => {
     if (sortBy !== column) return null;

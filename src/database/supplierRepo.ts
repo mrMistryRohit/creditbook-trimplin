@@ -1,84 +1,96 @@
 import db from "./db";
 
 export interface Supplier {
-    id: number;
-    user_id: number;
-    name: string;
-    phone?: string | null;
-    balance: number;
-    last_activity?: string | null;
-    archived?: number; // 0 = active, 1 = archived
+  id: number;
+  user_id: number;
+  business_id: number | null;
+  name: string;
+  phone?: string | null;
+  balance: number;
+  last_activity?: string | null;
+  archived?: number;
 }
 
 export const getSuppliersByUser = async (
-    userId: number,
-    includeArchived = false
+  userId: number,
+  businessId: number,
+  includeArchived = false
 ): Promise<Supplier[]> => {
-    const query = includeArchived
-        ? `SELECT id, user_id, name, phone, balance, last_activity, archived FROM suppliers WHERE user_id = ? ORDER BY created_at DESC`
-        : `SELECT id, user_id, name, phone, balance, last_activity, archived FROM suppliers WHERE user_id = ? AND (archived = 0 OR archived IS NULL) ORDER BY created_at DESC`;
+  const query = includeArchived
+    ? `SELECT id, user_id, business_id, name, phone, balance, last_activity, archived 
+       FROM suppliers WHERE user_id = ? AND business_id = ? ORDER BY created_at DESC`
+    : `SELECT id, user_id, business_id, name, phone, balance, last_activity, archived 
+       FROM suppliers WHERE user_id = ? AND business_id = ? AND (archived = 0 OR archived IS NULL) 
+       ORDER BY created_at DESC`;
 
-    const rows = await db.getAllAsync<Supplier>(query, [userId]);
-    return rows ?? [];
+  const rows = await db.getAllAsync<Supplier>(query, [userId, businessId]);
+  return rows ?? [];
+};
+
+export const getSupplierById = async (
+  supplierId: number
+): Promise<Supplier | null> => {
+  return await db.getFirstAsync<Supplier>(
+    `SELECT * FROM suppliers WHERE id = ?`,
+    [supplierId]
+  );
 };
 
 export const addSupplier = async (
-    userId: number,
-    name: string,
-    phone?: string
+  userId: number,
+  businessId: number,
+  name: string,
+  phone?: string
 ): Promise<void> => {
-    const now = "Today";
-    await db.runAsync(
-        "INSERT INTO suppliers (user_id, name, phone, balance, last_activity, archived) VALUES (?, ?, ?, ?, ?, ?)",
-        [userId, name, phone || "", 0, now, 0]
-    );
+  const now = "Today";
+  await db.runAsync(
+    "INSERT INTO suppliers (user_id, business_id, name, phone, balance, last_activity, archived) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [userId, businessId, name, phone || "", 0, now, 0]
+  );
 };
 
 export const updateSupplier = async (
-    userId: number,
-    supplierId: number,
-    name: string,
-    phone?: string
+  userId: number,
+  supplierId: number,
+  name: string,
+  phone?: string
 ): Promise<void> => {
-    await db.runAsync(
-        "UPDATE suppliers SET name = ?, phone = ? WHERE id = ? AND user_id = ?",
-        [name, phone || "", supplierId, userId]
-    );
+  await db.runAsync(
+    "UPDATE suppliers SET name = ?, phone = ? WHERE id = ? AND user_id = ?",
+    [name, phone || "", supplierId, userId]
+  );
 };
 
 export const archiveSupplier = async (
-    userId: number,
-    supplierId: number
+  userId: number,
+  supplierId: number
 ): Promise<void> => {
-    await db.runAsync(
-        "UPDATE suppliers SET archived = 1 WHERE id = ? AND user_id = ?",
-        [supplierId, userId]
-    );
+  await db.runAsync(
+    "UPDATE suppliers SET archived = 1 WHERE id = ? AND user_id = ?",
+    [supplierId, userId]
+  );
 };
 
 export const unarchiveSupplier = async (
-    userId: number,
-    supplierId: number
+  userId: number,
+  supplierId: number
 ): Promise<void> => {
-    await db.runAsync(
-        "UPDATE suppliers SET archived = 0 WHERE id = ? AND user_id = ?",
-        [supplierId, userId]
-    );
+  await db.runAsync(
+    "UPDATE suppliers SET archived = 0 WHERE id = ? AND user_id = ?",
+    [supplierId, userId]
+  );
 };
 
 export const deleteSupplier = async (
-    userId: number,
-    supplierId: number
+  userId: number,
+  supplierId: number
 ): Promise<void> => {
-    // Delete all transactions first
-    await db.runAsync(
-        "DELETE FROM supplier_transactions WHERE supplier_id = ? AND user_id = ?",
-        [supplierId, userId]
-    );
-
-    // Delete supplier
-    await db.runAsync("DELETE FROM suppliers WHERE id = ? AND user_id = ?", [
-        supplierId,
-        userId,
-    ]);
+  await db.runAsync(
+    "DELETE FROM supplier_transactions WHERE supplier_id = ? AND user_id = ?",
+    [supplierId, userId]
+  );
+  await db.runAsync("DELETE FROM suppliers WHERE id = ? AND user_id = ?", [
+    supplierId,
+    userId,
+  ]);
 };

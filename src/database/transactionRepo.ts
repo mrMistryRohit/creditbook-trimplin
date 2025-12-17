@@ -4,6 +4,7 @@ export interface Transaction {
   id: number;
   customer_id: number;
   user_id: number;
+  business_id: number | null;
   type: "credit" | "debit";
   amount: number;
   note?: string | null;
@@ -15,7 +16,7 @@ export const getTransactionsForCustomer = async (
   customerId: number
 ): Promise<Transaction[]> => {
   const rows = await db.getAllAsync<Transaction>(
-    `SELECT id, customer_id, user_id, type, amount, note, date
+    `SELECT id, customer_id, user_id, business_id, type, amount, note, date
      FROM transactions
      WHERE user_id = ? AND customer_id = ?
      ORDER BY created_at DESC`,
@@ -26,6 +27,7 @@ export const getTransactionsForCustomer = async (
 
 export const addTransactionForCustomer = async (
   userId: number,
+  businessId: number,
   customerId: number,
   type: "credit" | "debit",
   amount: number,
@@ -33,9 +35,9 @@ export const addTransactionForCustomer = async (
   date: string
 ): Promise<void> => {
   await db.runAsync(
-    `INSERT INTO transactions (customer_id, user_id, type, amount, note, date)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [customerId, userId, type, amount, note, date]
+    `INSERT INTO transactions (customer_id, user_id, business_id, type, amount, note, date)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [customerId, userId, businessId, type, amount, note, date]
   );
 
   const delta = type === "credit" ? amount : -amount;
@@ -56,9 +58,7 @@ export const updateTransaction = async (
   newNote: string,
   newDate: string
 ): Promise<void> => {
-  // Reverse old transaction impact
   const oldDelta = oldType === "credit" ? -oldAmount : oldAmount;
-  // Apply new transaction impact
   const newDelta = newType === "credit" ? newAmount : -newAmount;
   const netDelta = oldDelta + newDelta;
 
@@ -85,10 +85,8 @@ export const deleteTransaction = async (
     userId,
   ]);
 
-  // Reverse the transaction impact
   const delta = type === "credit" ? -amount : amount;
   const now = new Date().toLocaleString("en-IN");
-
   await db.runAsync(
     `UPDATE customers SET balance = balance + ?, last_activity = ? WHERE id = ? AND user_id = ?`,
     [delta, now, customerId, userId]

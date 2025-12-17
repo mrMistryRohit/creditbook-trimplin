@@ -1,6 +1,7 @@
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { addBusiness } from "../database/businessRepo";
 import db from "../database/db";
 
 interface User {
@@ -92,8 +93,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         [name, email.toLowerCase(), passwordHash, shopName || ""]
       );
 
+      const newUserId = result.lastInsertRowId;
+
+      console.log("✅ User created with ID:", newUserId);
+
+      // ✅ Create default business (automatically is_default = 0 initially)
+      const businessName = shopName?.trim() || `${name.trim()}'s Business`;
+      await addBusiness(
+        newUserId,
+        businessName,
+        "Default business account",
+        "",
+        ""
+      );
+
+      console.log("✅ Default business created:", businessName);
+
+      // ✅ Since this is the user's FIRST business, set it as default
+      // This is safe because there's only one business at this point
+      await db.runAsync(
+        "UPDATE businesses SET is_default = 1 WHERE user_id = ?",
+        [newUserId]
+      );
+
+      console.log("✅ Business set as default");
+
       const newUser: User = {
-        id: result.lastInsertRowId,
+        id: newUserId,
         name,
         email: email.toLowerCase(),
         shop_name: shopName,
@@ -105,7 +131,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: true, message: "Registration successful" };
     } catch (error) {
       console.error("Register error:", error);
-      return { success: false, message: "Registration failed" };
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Registration failed",
+      };
     }
   };
 
@@ -141,7 +170,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: true, message: "Login successful" };
     } catch (error) {
       console.error("Login error:", error);
-      return { success: false, message: "Login failed" };
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Login failed",
+      };
     }
   };
 
@@ -149,26 +181,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const userId = await SecureStore.getItemAsync("userId");
       if (!userId) return;
+
       const result = await db.getFirstAsync<User>(
         "SELECT id, name, email, phone, shop_name FROM users WHERE id = ?",
         [parseInt(userId)]
       );
-      if (result) setUser(result);
-    } catch (e) {
-      console.error("Refresh user error:", e);
+
+      if (result) {
+        setUser(result);
+      }
+    } catch (error) {
+      console.error("Refresh user error:", error);
     }
   };
 
   const logout = async () => {
-    await SecureStore.deleteItemAsync("userId");
-    setUser(null);
+    try {
+      await SecureStore.deleteItemAsync("userId");
+      setUser(null);
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
-  // return (
-  //   <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>
-  //     {children}
-  //   </AuthContext.Provider>
-  // );
   return (
     <AuthContext.Provider
       value={{ user, isLoading, login, register, logout, refreshUser }}

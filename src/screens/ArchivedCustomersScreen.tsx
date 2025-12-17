@@ -2,29 +2,31 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  FlatList,
   BackHandler,
+  FlatList,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-import { colors, spacing, typography } from "../../constants/theme";
+import { colors, typography } from "../../constants/theme";
 import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
+import { useBusiness } from "../context/BusinessContext";
 import { Customer, getCustomersByUser } from "../database/customerRepo";
 import { appEvents } from "../utils/events";
 
 export default function ArchivedCustomersScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { currentBusiness } = useBusiness();
   const [archivedCustomers, setArchivedCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadArchivedCustomers = async () => {
-    if (!user) return;
+    if (!user || !currentBusiness) return;
     setLoading(true);
-    const all = await getCustomersByUser(user.id, true);
+    const all = await getCustomersByUser(user.id, currentBusiness.id, true);
     const archived = all.filter((c) => c.archived === 1);
     setArchivedCustomers(archived);
     setLoading(false);
@@ -38,14 +40,17 @@ export default function ArchivedCustomersScreen() {
     };
 
     appEvents.on("customerUpdated", handler);
+    appEvents.on("businessSwitched", handler);
+
     return () => {
       appEvents.off("customerUpdated", handler);
+      appEvents.off("businessSwitched", handler);
     };
-  }, [user?.id]);
+  }, [user?.id, currentBusiness?.id]);
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
-      'hardwareBackPress',
+      "hardwareBackPress",
       () => {
         router.replace("/(tabs)/ledger");
         return true;
@@ -92,7 +97,10 @@ export default function ArchivedCustomersScreen() {
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.replace("/(tabs)/ledger")} style={styles.backButton}>
+          <TouchableOpacity
+            onPress={() => router.replace("/(tabs)/ledger")}
+            style={styles.backButton}
+          >
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.title}>Archived Customers</Text>

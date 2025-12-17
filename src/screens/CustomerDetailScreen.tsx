@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -11,30 +12,32 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { colors, radius, spacing, typography } from "../../constants/theme";
 import Card from "../components/Card";
 import PrimaryButton from "../components/PrimaryButton";
 import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
+import { useBusiness } from "../context/BusinessContext";
+import {
+  Customer,
+  archiveCustomer,
+  deleteCustomer,
+  unarchiveCustomer,
+  updateCustomer,
+} from "../database/customerRepo";
 import {
   Transaction,
   addTransactionForCustomer,
   getTransactionsForCustomer,
 } from "../database/transactionRepo";
-import {
-  updateCustomer,
-  deleteCustomer,
-  archiveCustomer,
-  unarchiveCustomer,
-  Customer,
-} from "../database/customerRepo";
 import { appEvents } from "../utils/events";
 
 interface CustomerParam {
   id: number;
   user_id: number;
+  business_id: number | null;
   name: string;
+  phone?: string | null;
   balance: number;
   last_activity?: string | null;
   archived?: number;
@@ -46,15 +49,26 @@ export default function CustomerDetailScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const { user } = useAuth();
+  const { currentBusiness } = useBusiness();
 
   const customer: CustomerParam = params.customer
     ? JSON.parse(params.customer as string)
-    : { id: 0, user_id: 0, name: "Unknown Customer", balance: 0, archived: 0 };
+    : {
+        id: 0,
+        user_id: 0,
+        business_id: null,
+        name: "Unknown Customer",
+        phone: null,
+        balance: 0,
+        archived: 0,
+      };
 
   const [customerData, setCustomerData] = useState<Customer>(customer);
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
+  const [filteredTransactions, setFilteredTransactions] = useState<
+    Transaction[]
+  >([]);
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
 
   const [amount, setAmount] = useState("");
@@ -77,9 +91,9 @@ export default function CustomerDetailScreen() {
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
-      'hardwareBackPress',
+      "hardwareBackPress",
       () => {
-        router.replace("/(tabs)/ledger");
+        router.replace("/(tabs)");
         return true;
       }
     );
@@ -133,29 +147,38 @@ export default function CustomerDetailScreen() {
   };
 
   const handleAddTransaction = async (type: "credit" | "debit") => {
-    if (!user || !customer.id) return;
-    if (!amount) return;
+    if (!user || !currentBusiness || !customer) return;
+    if (!amount.trim() || isNaN(parseFloat(amount))) {
+      Alert.alert("Validation", "Please enter a valid amount");
+      return;
+    }
 
-    const amt = Number(amount);
-    if (Number.isNaN(amt) || amt <= 0) return;
+    const amt = parseFloat(amount);
+    if (Number.isNaN(amt) || amt <= 0) {
+      Alert.alert("Validation", "Amount must be greater than 0");
+      return;
+    }
 
-    const now = new Date();
-    const formatted = now.toLocaleString("en-IN");
+    try {
+      await addTransactionForCustomer(
+        user.id,
+        currentBusiness.id,
+        customer.id,
+        type,
+        amt,
+        note || (type === "credit" ? "Udhar given" : "Payment received"),
+        new Date().toLocaleString("en-IN")
+      );
 
-    await addTransactionForCustomer(
-      user.id,
-      customer.id,
-      type,
-      amt,
-      note || (type === "credit" ? "Udhar given" : "Payment received"),
-      formatted
-    );
+      appEvents.emit("customerUpdated");
 
-    appEvents.emit("customerUpdated");
-
-    setAmount("");
-    setNote("");
-    await loadTransactions();
+      setAmount("");
+      setNote("");
+      await loadTransactions();
+    } catch (error) {
+      Alert.alert("Error", "Failed to add transaction");
+      console.error(error);
+    }
   };
 
   const handleArchiveCustomer = () => {
@@ -201,8 +224,17 @@ export default function CustomerDetailScreen() {
       return;
     }
 
-    await updateCustomer(user.id, customerData.id, editName.trim(), editPhone.trim());
-    setCustomerData({ ...customerData, name: editName.trim(), phone: editPhone.trim() });
+    await updateCustomer(
+      user.id,
+      customerData.id,
+      editName.trim(),
+      editPhone.trim()
+    );
+    setCustomerData({
+      ...customerData,
+      name: editName.trim(),
+      phone: editPhone.trim(),
+    });
     appEvents.emit("customerUpdated");
     setEditCustomerVisible(false);
     Alert.alert("Success", "Customer details updated successfully");
@@ -217,9 +249,12 @@ export default function CustomerDetailScreen() {
     // Check if balance is not zero
     if (currentBalance !== 0) {
       const absBalance = Math.abs(currentBalance);
-      const message = currentBalance > 0
-        ? `Customer still owes ₹${absBalance.toLocaleString("en-IN")} to you`
-        : `You still owe ₹${absBalance.toLocaleString("en-IN")} to the customer`;
+      const message =
+        currentBalance > 0
+          ? `Customer still owes ₹${absBalance.toLocaleString("en-IN")} to you`
+          : `You still owe ₹${absBalance.toLocaleString(
+              "en-IN"
+            )} to the customer`;
 
       Alert.alert("Cannot Delete", message);
       return;
@@ -241,7 +276,7 @@ export default function CustomerDetailScreen() {
             Alert.alert("Deleted", "Customer has been deleted", [
               {
                 text: "OK",
-                onPress: () => router.replace("/(tabs)/ledger"),
+                onPress: () => router.replace("/(tabs)"),
               },
             ]);
           },
@@ -297,7 +332,7 @@ export default function CustomerDetailScreen() {
         {/* Back Button Header */}
         <View style={styles.headerContainer}>
           <TouchableOpacity
-            onPress={() => router.replace("/(tabs)/ledger")}
+            onPress={() => router.replace("/(tabs)")}
             style={styles.backButton}
           >
             <Ionicons name="arrow-back" size={24} color={colors.text} />
@@ -317,7 +352,9 @@ export default function CustomerDetailScreen() {
             style={styles.archiveButton}
           >
             <Ionicons
-              name={customerData.archived ? "arrow-undo-outline" : "archive-outline"}
+              name={
+                customerData.archived ? "arrow-undo-outline" : "archive-outline"
+              }
               size={22}
               color={customerData.archived ? colors.accent : colors.text}
             />
@@ -611,6 +648,7 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: typography.small,
     marginTop: spacing.sm,
+    textAlign: "center",
   },
   modalBackdrop: {
     flex: 1,

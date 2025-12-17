@@ -3,34 +3,49 @@ import db from "./db";
 export interface Customer {
   id: number;
   user_id: number;
+  business_id: number | null;
   name: string;
   phone?: string | null;
   balance: number;
   last_activity?: string | null;
-  archived?: number; // 0 = active, 1 = archived
+  archived?: number;
 }
 
 export const getCustomersByUser = async (
   userId: number,
+  businessId: number,
   includeArchived = false
 ): Promise<Customer[]> => {
   const query = includeArchived
-    ? `SELECT id, user_id, name, phone, balance, last_activity, archived FROM customers WHERE user_id = ? ORDER BY created_at DESC`
-    : `SELECT id, user_id, name, phone, balance, last_activity, archived FROM customers WHERE user_id = ? AND (archived = 0 OR archived IS NULL) ORDER BY created_at DESC`;
+    ? `SELECT id, user_id, business_id, name, phone, balance, last_activity, archived 
+       FROM customers WHERE user_id = ? AND business_id = ? ORDER BY created_at DESC`
+    : `SELECT id, user_id, business_id, name, phone, balance, last_activity, archived 
+       FROM customers WHERE user_id = ? AND business_id = ? AND (archived = 0 OR archived IS NULL) 
+       ORDER BY created_at DESC`;
 
-  const rows = await db.getAllAsync<Customer>(query, [userId]);
+  const rows = await db.getAllAsync<Customer>(query, [userId, businessId]);
   return rows ?? [];
+};
+
+export const getCustomerById = async (
+  customerId: number
+): Promise<Customer | null> => {
+  return await db.getFirstAsync<Customer>(
+    `SELECT * FROM customers WHERE id = ?`,
+    [customerId]
+  );
 };
 
 export const addCustomer = async (
   userId: number,
+  businessId: number,
   name: string,
   phone?: string
 ): Promise<void> => {
   const now = "Today";
   await db.runAsync(
-    "INSERT INTO customers (user_id, name, phone, balance, last_activity, archived) VALUES (?, ?, ?, ?, ?, ?)",
-    [userId, name, phone || "", 0, now, 0]
+    "INSERT INTO customers (user_id, business_id, name, phone, balance, last_activity, archived) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [userId, businessId, name, phone || "", 0, now, 0]
   );
 };
 
@@ -70,13 +85,10 @@ export const deleteCustomer = async (
   userId: number,
   customerId: number
 ): Promise<void> => {
-  // Delete all transactions first
   await db.runAsync(
     "DELETE FROM transactions WHERE customer_id = ? AND user_id = ?",
     [customerId, userId]
   );
-
-  // Delete customer
   await db.runAsync("DELETE FROM customers WHERE id = ? AND user_id = ?", [
     customerId,
     userId,

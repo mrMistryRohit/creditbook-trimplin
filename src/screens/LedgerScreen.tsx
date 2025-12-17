@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   FlatList,
   StyleSheet,
@@ -12,6 +12,7 @@ import {
 import { colors, spacing, typography } from "../../constants/theme";
 import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
+import { useBusiness } from "../context/BusinessContext";
 import { Customer, getCustomersByUser } from "../database/customerRepo";
 import { Supplier, getSuppliersByUser } from "../database/supplierRepo";
 import { appEvents } from "../utils/events";
@@ -23,62 +24,109 @@ type LedgerTab = "customers" | "suppliers";
 export default function LedgerScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { currentBusiness } = useBusiness();
 
-  // Tab state
   const [activeTab, setActiveTab] = useState<LedgerTab>("customers");
-
-  // Customers
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
   const [archivedCustomersCount, setArchivedCustomersCount] = useState(0);
-
-  // Suppliers
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [filteredSuppliers, setFilteredSuppliers] = useState<Supplier[]>([]);
   const [archivedSuppliersCount, setArchivedSuppliersCount] = useState(0);
-
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("date");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
-  const loadData = async () => {
-    if (!user) return;
+  // ✅ Add reload trigger state
+  const [reloadTrigger, setReloadTrigger] = useState(0);
+
+  // ✅ Wrap loadData in useCallback with proper dependencies
+  const loadData = useCallback(async () => {
+    console.log("🔄 LedgerScreen loadData called");
+    console.log(
+      "Current Business:",
+      currentBusiness?.name,
+      "ID:",
+      currentBusiness?.id
+    );
+
+    if (!user || !currentBusiness) {
+      console.log("⚠️ Missing user or business");
+      return;
+    }
+
+    // Clear existing data immediately
+    setCustomers([]);
+    setSuppliers([]);
+    setFilteredCustomers([]);
+    setFilteredSuppliers([]);
+    setArchivedCustomersCount(0);
+    setArchivedSuppliersCount(0);
+
     setLoading(true);
-    const [activeCustomers, archivedCustomers, activeSuppliers, archivedSuppliers] =
-      await Promise.all([
-        getCustomersByUser(user.id, false),
-        getCustomersByUser(user.id, true),
-        getSuppliersByUser(user.id, false),
-        getSuppliersByUser(user.id, true),
+
+    try {
+      const [
+        activeCustomers,
+        archivedCustomers,
+        activeSuppliers,
+        archivedSuppliers,
+      ] = await Promise.all([
+        getCustomersByUser(user.id, currentBusiness.id, false),
+        getCustomersByUser(user.id, currentBusiness.id, true),
+        getSuppliersByUser(user.id, currentBusiness.id, false),
+        getSuppliersByUser(user.id, currentBusiness.id, true),
       ]);
 
-    setCustomers(activeCustomers);
-    setSuppliers(activeSuppliers);
+      console.log(
+        "✅ Ledger loaded:",
+        activeCustomers.length,
+        "customers,",
+        activeSuppliers.length,
+        "suppliers for business:",
+        currentBusiness.id
+      );
 
-    // Count only archived ones
-    setArchivedCustomersCount(archivedCustomers.filter(c => c.archived === 1).length);
-    setArchivedSuppliersCount(archivedSuppliers.filter(s => s.archived === 1).length);
+      setCustomers(activeCustomers);
+      setSuppliers(activeSuppliers);
 
-    setLoading(false);
-  };
+      setArchivedCustomersCount(
+        archivedCustomers.filter((c) => c.archived === 1).length
+      );
+      setArchivedSuppliersCount(
+        archivedSuppliers.filter((s) => s.archived === 1).length
+      );
+    } catch (error) {
+      console.error("❌ Error loading ledger data:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id, currentBusiness?.id]);
 
+  // ✅ Load data when dependencies change OR reloadTrigger changes
   useEffect(() => {
     loadData();
+  }, [loadData, reloadTrigger]);
 
+  // ✅ Event handlers trigger state change instead of calling loadData directly
+  useEffect(() => {
     const handler = () => {
-      loadData();
+      console.log("📣 Ledger: Event received, triggering reload");
+      setReloadTrigger((prev) => prev + 1);
     };
 
     appEvents.on("customerUpdated", handler);
     appEvents.on("supplierUpdated", handler);
+    appEvents.on("businessSwitched", handler);
+
     return () => {
       appEvents.off("customerUpdated", handler);
       appEvents.off("supplierUpdated", handler);
+      appEvents.off("businessSwitched", handler);
     };
-  }, [user?.id]);
+  }, []); // ✅ Empty dependencies - handler never changes
 
-  // Apply search and sort for customers
   useEffect(() => {
     let result = [...customers];
 
@@ -115,7 +163,6 @@ export default function LedgerScreen() {
     setFilteredCustomers(result);
   }, [customers, searchQuery, sortBy, sortOrder]);
 
-  // Apply search and sort for suppliers
   useEffect(() => {
     let result = [...suppliers];
 
@@ -196,7 +243,10 @@ export default function LedgerScreen() {
   };
 
   const renderArchiveCard = () => {
-    const count = activeTab === "customers" ? archivedCustomersCount : archivedSuppliersCount;
+    const count =
+      activeTab === "customers"
+        ? archivedCustomersCount
+        : archivedSuppliersCount;
 
     if (count === 0) return null;
 
@@ -212,7 +262,8 @@ export default function LedgerScreen() {
         <View style={styles.archiveInfo}>
           <Text style={styles.archiveTitle}>Archived</Text>
           <Text style={styles.archiveSubtitle}>
-            {count} archived {activeTab === "customers" ? "customer" : "supplier"}
+            {count} archived{" "}
+            {activeTab === "customers" ? "customer" : "supplier"}
             {count > 1 ? "s" : ""}
           </Text>
         </View>
@@ -246,8 +297,8 @@ export default function LedgerScreen() {
                   ? styles.customerDue
                   : styles.customerAdvance
                 : isDue
-                  ? styles.supplierPayable
-                  : styles.supplierReceivable,
+                ? styles.supplierPayable
+                : styles.supplierReceivable,
             ]}
           >
             ₹ {Math.abs(item.balance).toLocaleString("en-IN")}
@@ -258,8 +309,8 @@ export default function LedgerScreen() {
                 ? "You will get"
                 : "You will give"
               : isDue
-                ? "You will pay"
-                : "You will get"}
+              ? "You will pay"
+              : "You will get"}
           </Text>
         </View>
       </TouchableOpacity>
@@ -272,13 +323,11 @@ export default function LedgerScreen() {
   return (
     <Screen>
       <View style={styles.container}>
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Ledger</Text>
           <Text style={styles.subtitle}>All customer & supplier accounts</Text>
         </View>
 
-        {/* Search Bar */}
         <TextInput
           style={styles.searchInput}
           placeholder={`Search ${activeTab} by name or phone...`}
@@ -287,7 +336,6 @@ export default function LedgerScreen() {
           onChangeText={setSearchQuery}
         />
 
-        {/* Sort Tabs */}
         <View style={styles.sortRow}>
           <TouchableOpacity
             style={[
@@ -348,7 +396,6 @@ export default function LedgerScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Customer/Supplier Tab Switcher */}
         <View style={styles.tabSwitcher}>
           <TouchableOpacity
             style={[
@@ -384,7 +431,6 @@ export default function LedgerScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* List with Archive Card */}
         <FlatList
           data={currentData}
           keyExtractor={(item) => `${activeTab}-${item.id}`}

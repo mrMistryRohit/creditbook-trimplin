@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -11,6 +11,7 @@ import { colors, spacing, typography } from "../../constants/theme";
 import Card from "../components/Card";
 import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
+import { useBusiness } from "../context/BusinessContext";
 import { getReportsForUser, PeriodReport } from "../database/reportsRepo";
 import { appEvents } from "../utils/events";
 
@@ -18,35 +19,66 @@ type PeriodTab = "today" | "week" | "month" | "allTime";
 
 export default function ReportsScreen() {
   const { user } = useAuth();
+  const { currentBusiness } = useBusiness();
   const [reports, setReports] = useState<PeriodReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [activePeriod, setActivePeriod] = useState<PeriodTab>("month");
 
-  const loadReports = async () => {
-    if (!user) return;
+  // ✅ Add reload trigger state
+  const [reloadTrigger, setReloadTrigger] = useState(0);
+
+  // ✅ Wrap loadReports in useCallback with proper dependencies
+  const loadReports = useCallback(async () => {
+    console.log("🔄 ReportsScreen loadReports called");
+    console.log(
+      "Current Business:",
+      currentBusiness?.name,
+      "ID:",
+      currentBusiness?.id
+    );
+
+    if (!user || !currentBusiness) {
+      console.log("⚠️ Missing user or business");
+      return;
+    }
+
+    // Clear existing reports
+    setReports(null);
+
     setLoading(true);
     try {
-      const data = await getReportsForUser(user.id);
+      const data = await getReportsForUser(user.id, currentBusiness.id);
+      console.log("✅ Reports loaded for business:", currentBusiness.id);
       setReports(data);
     } catch (error) {
       console.error("Failed to load reports:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id, currentBusiness?.id]);
 
+  // ✅ Load reports when dependencies change OR reloadTrigger changes
   useEffect(() => {
     loadReports();
+  }, [loadReports, reloadTrigger]);
 
-    // Reload when transactions change
+  // ✅ Event handlers trigger state change instead of calling loadReports directly
+  useEffect(() => {
     const handler = () => {
-      loadReports();
+      console.log("📣 Reports: Event received, triggering reload");
+      setReloadTrigger((prev) => prev + 1);
     };
+
     appEvents.on("customerUpdated", handler);
+    appEvents.on("supplierUpdated", handler);
+    appEvents.on("businessSwitched", handler);
+
     return () => {
       appEvents.off("customerUpdated", handler);
+      appEvents.off("supplierUpdated", handler);
+      appEvents.off("businessSwitched", handler);
     };
-  }, [user?.id]);
+  }, []); // ✅ Empty dependencies - handler never changes
 
   if (loading) {
     return (
