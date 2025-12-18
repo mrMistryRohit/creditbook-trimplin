@@ -79,11 +79,13 @@ creditbook-trimplin
 │  │  ├─ 📄reports.tsx
 │  │  ├─ 📄settings.tsx
 │  │  └─ 📄_layout.tsx
+│  ├─ 📄add-stock-item.tsx
 │  ├─ 📄archived-customers.tsx
 │  ├─ 📄archived-suppliers.tsx
 │  ├─ 📄customer-detail.tsx
 │  ├─ 📄modal.tsx
 │  ├─ 📄stock-item-detail.tsx
+│  ├─ 📄stock.tsx
 │  ├─ 📄supplier-detail.tsx
 │  └─ 📄_layout.tsx
 ├─ 📁assets
