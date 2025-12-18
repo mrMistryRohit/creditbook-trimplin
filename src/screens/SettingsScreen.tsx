@@ -43,6 +43,7 @@ export default function SettingsScreen() {
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(
     null
   );
+  const [menuVisibleForId, setMenuVisibleForId] = useState<number | null>(null);
 
   // Business form states
   const [businessName, setBusinessName] = useState("");
@@ -120,6 +121,7 @@ export default function SettingsScreen() {
     setBusinessPhone(business.phone || "");
     setBusinessAddress(business.address || "");
     setEditBusinessVisible(true);
+    setMenuVisibleForId(null);
   };
 
   const handleEditBusiness = async () => {
@@ -148,6 +150,8 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteBusiness = (business: Business) => {
+    setMenuVisibleForId(null);
+
     if (businesses.length === 1) {
       Alert.alert("Cannot Delete", "You must have at least one business");
       return;
@@ -155,7 +159,7 @@ export default function SettingsScreen() {
 
     Alert.alert(
       "Delete Business",
-      `Are you sure you want to delete "${business.name}"? This action cannot be undone.`,
+      `Are you sure you want to delete "${business.name}"? All customers, suppliers, transactions, and inventory will be permanently deleted.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -167,16 +171,28 @@ export default function SettingsScreen() {
               await refreshBusinesses();
               appEvents.emit("businessUpdated");
               Alert.alert("Success", "Business has been deleted");
-            } catch (error: any) {
+            } catch (err: any) {
               Alert.alert(
                 "Cannot Delete",
-                error.message || "Failed to delete business"
+                err.message || "Failed to delete business"
               );
             }
           },
         },
       ]
     );
+  };
+
+  const handleStockManagement = (business: Business) => {
+    setMenuVisibleForId(null);
+
+    // Switch to this business if not already current
+    if (currentBusiness?.id !== business.id) {
+      setCurrentBusiness(business);
+    }
+
+    // Navigate to stock screen
+    router.push("/stock" as any);
   };
 
   const handleSetDefault = async (business: Business) => {
@@ -204,9 +220,14 @@ export default function SettingsScreen() {
     setSelectedBusiness(null);
   };
 
+  const toggleMenu = (businessId: number) => {
+    setMenuVisibleForId(menuVisibleForId === businessId ? null : businessId);
+  };
+
   const renderBusiness = ({ item }: { item: Business }) => {
     const isActive = currentBusiness?.id === item.id;
     const isDefault = item.is_default === 1;
+    const menuOpen = menuVisibleForId === item.id;
 
     return (
       <View
@@ -224,21 +245,52 @@ export default function SettingsScreen() {
               </View>
             )}
           </View>
-          <View style={styles.businessActions}>
-            <TouchableOpacity
-              onPress={() => openEditBusiness(item)}
-              style={styles.actionButton}
-            >
-              <Ionicons name="create-outline" size={20} color={colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleDeleteBusiness(item)}
-              style={styles.actionButton}
-            >
-              <Ionicons name="trash-outline" size={20} color={colors.danger} />
-            </TouchableOpacity>
-          </View>
+
+          {/* Three Dot Menu Button */}
+          <TouchableOpacity
+            style={styles.menuButton}
+            onPress={() => toggleMenu(item.id)}
+          >
+            <Ionicons name="ellipsis-vertical" size={20} color={colors.text} />
+          </TouchableOpacity>
         </View>
+
+        {/* Dropdown Menu */}
+        {menuOpen && (
+          <View style={styles.dropdownMenu}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => openEditBusiness(item)}
+            >
+              <Ionicons name="create-outline" size={18} color={colors.accent} />
+              <Text style={styles.menuItemText}>Edit</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => handleStockManagement(item)}
+            >
+              <Ionicons name="cube-outline" size={18} color={colors.primary} />
+              <Text style={styles.menuItemText}>Stock Management</Text>
+            </TouchableOpacity>
+
+            {businesses.length > 1 && (
+              <TouchableOpacity
+                style={[styles.menuItem, styles.menuItemLast]}
+                onPress={() => handleDeleteBusiness(item)}
+              >
+                <Ionicons
+                  name="trash-outline"
+                  size={18}
+                  color={colors.danger}
+                />
+                <Text style={[styles.menuItemText, styles.menuItemTextDanger]}>
+                  Delete
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {(item.phone || item.address) && (
           <View style={styles.businessDetails}>
@@ -616,12 +668,36 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
   },
-  businessActions: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  actionButton: {
+  menuButton: {
     padding: 6,
+  },
+  dropdownMenu: {
+    backgroundColor: colors.card,
+    borderRadius: 8,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  menuItemLast: {
+    borderBottomWidth: 0,
+  },
+  menuItemText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "600",
+    marginLeft: 12,
+  },
+  menuItemTextDanger: {
+    color: colors.danger,
   },
   businessDetails: {
     marginTop: 8,

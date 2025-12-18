@@ -83,6 +83,7 @@ creditbook-trimplin
 │  ├─ 📄archived-suppliers.tsx
 │  ├─ 📄customer-detail.tsx
 │  ├─ 📄modal.tsx
+│  ├─ 📄stock-item-detail.tsx
 │  ├─ 📄supplier-detail.tsx
 │  └─ 📄_layout.tsx
 ├─ 📁assets
@@ -130,12 +131,14 @@ creditbook-trimplin
 │  │  ├─ 📄businessRepo.ts
 │  │  ├─ 📄customerRepo.ts
 │  │  ├─ 📄db.ts
+│  │  ├─ 📄inventoryRepo.ts
 │  │  ├─ 📄reportsRepo.ts
 │  │  ├─ 📄supplierRepo.ts
 │  │  ├─ 📄supplierTransactionRepo.ts
 │  │  ├─ 📄transactionRepo.ts
 │  │  └─ 📄userRepo.ts
 │  ├─ 📁screens
+│  │  ├─ 📄AddStockItemScreen.tsx
 │  │  ├─ 📄ArchivedCustomersScreen.tsx
 │  │  ├─ 📄ArchivedSuppliersScreen.tsx
 │  │  ├─ 📄CustomerDetailScreen.tsx
@@ -143,6 +146,8 @@ creditbook-trimplin
 │  │  ├─ 📄LedgerScreen.tsx
 │  │  ├─ 📄ReportsScreen.tsx
 │  │  ├─ 📄SettingsScreen.tsx
+│  │  ├─ 📄StockItemDetailScreen.tsx
+│  │  ├─ 📄StockScreen.tsx
 │  │  └─ 📄SupplierDetailScreen.tsx
 │  └─ 📁utils
 │     └─ 📄events.ts

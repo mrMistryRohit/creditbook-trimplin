@@ -5,4 +5,5 @@ export const appEvents = new EventEmitter<{
   supplierUpdated: void;
   businessUpdated: void;
   businessSwitched: void;
+  inventoryUpdated: void;
 }>();
