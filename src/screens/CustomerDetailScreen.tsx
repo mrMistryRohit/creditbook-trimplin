@@ -93,7 +93,7 @@ export default function CustomerDetailScreen() {
     const backHandler = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
-        router.replace("/(tabs)");
+        router.replace("/(tabs)/ledger");
         return true;
       }
     );
@@ -276,7 +276,7 @@ export default function CustomerDetailScreen() {
             Alert.alert("Deleted", "Customer has been deleted", [
               {
                 text: "OK",
-                onPress: () => router.replace("/(tabs)"),
+                onPress: () => router.replace("/(tabs)/ledger"),
               },
             ]);
           },
@@ -332,7 +332,7 @@ export default function CustomerDetailScreen() {
         {/* Back Button Header */}
         <View style={styles.headerContainer}>
           <TouchableOpacity
-            onPress={() => router.replace("/(tabs)")}
+            onPress={() => router.replace("/(tabs)/ledger")}
             style={styles.backButton}
           >
             <Ionicons name="arrow-back" size={24} color={colors.text} />
