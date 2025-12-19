@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   FlatList,
+  BackHandler,
   Image,
   StyleSheet,
   Text,
@@ -11,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, typography } from "../../constants/theme";
 import PrimaryButton from "../components/PrimaryButton";
 import Screen from "../components/Screen";
@@ -27,6 +29,7 @@ export default function StockScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { currentBusiness } = useBusiness();
+  const insets = useSafeAreaInsets();
 
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [filteredItems, setFilteredItems] = useState<InventoryItem[]>([]);
@@ -67,11 +70,22 @@ export default function StockScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user, currentBusiness]); // ✅ Fixed: Added all dependencies
+  }, [user, currentBusiness]);
 
   useEffect(() => {
     loadData();
   }, [loadData, reloadTrigger]);
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        router.replace("/settings");
+        return true;
+      }
+    );
+    return () => backHandler.remove();
+  }, []);
 
   useEffect(() => {
     const handler = () => {
@@ -103,12 +117,12 @@ export default function StockScreen() {
   }, [searchQuery, items]);
 
   const handleAddItem = () => {
-    router.push("/add-stock-item" as any); // ✅ Fixed: Type assertion for dynamic route
+    router.push("/add-stock-item" as any);
   };
 
   const handleItemPress = (item: InventoryItem) => {
     router.push({
-      pathname: "/stock-item-detail" as any, // ✅ Fixed: Type assertion
+      pathname: "/stock-item-detail" as any,
       params: { itemId: item.id.toString() },
     });
   };
@@ -233,7 +247,7 @@ export default function StockScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={() => router.replace("/settings")}
             style={styles.backButton}
           >
             <Ionicons name="arrow-back" size={24} color={colors.text} />
@@ -292,7 +306,7 @@ export default function StockScreen() {
         <PrimaryButton
           label="+ Add New Item"
           onPress={handleAddItem}
-          style={styles.addButton}
+          style={[styles.addButton, { bottom: insets.bottom + 20 }]}
         />
       </View>
     </Screen>
@@ -467,7 +481,7 @@ const styles = StyleSheet.create({
   },
   addButton: {
     position: "absolute",
-    bottom: 20,
+    // bottom: 20,
     left: 16,
     right: 16,
   },

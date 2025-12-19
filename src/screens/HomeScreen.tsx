@@ -26,6 +26,7 @@ import {
   getSuppliersByUser,
   Supplier,
 } from "../database/supplierRepo";
+import { Business, getBusinessesByUser } from "../database/businessRepo"; // ✅ ADD THIS
 import { appEvents } from "../utils/events";
 
 type SortOption = "date" | "name" | "amount";
@@ -35,7 +36,7 @@ type HomeTab = "customers" | "suppliers";
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { currentBusiness } = useBusiness();
+  const { currentBusiness, setCurrentBusiness } = useBusiness(); // ✅ ADD setCurrentBusiness
 
   // Tab state
   const [activeTab, setActiveTab] = useState<HomeTab>("customers");
@@ -56,11 +57,25 @@ export default function HomeScreen() {
   // Modals
   const [addCustomerVisible, setAddCustomerVisible] = useState(false);
   const [addSupplierVisible, setAddSupplierVisible] = useState(false);
+  const [businessSwitcherVisible, setBusinessSwitcherVisible] = useState(false); // ✅ ADD THIS
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
 
-  // ✅ Add reload trigger state
+  // ✅ ADD: Business list state
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+
   const [reloadTrigger, setReloadTrigger] = useState(0);
+
+  // ✅ ADD: Load businesses function
+  const loadBusinesses = useCallback(async () => {
+    if (!user) return;
+    try {
+      const businessList = await getBusinessesByUser(user.id);
+      setBusinesses(businessList);
+    } catch (error) {
+      console.error("Error loading businesses:", error);
+    }
+  }, [user?.id]);
 
   const loadData = useCallback(async () => {
     console.log("🔄 HomeScreen loadData called");
@@ -76,7 +91,6 @@ export default function HomeScreen() {
       return;
     }
 
-    // Clear existing data immediately
     setCustomers([]);
     setSuppliers([]);
     setFilteredCustomers([]);
@@ -108,16 +122,15 @@ export default function HomeScreen() {
     }
   }, [user?.id, currentBusiness?.id]);
 
-  // ✅ Load data when dependencies change OR reloadTrigger changes
   useEffect(() => {
     loadData();
-  }, [loadData, reloadTrigger]);
+    loadBusinesses(); // ✅ ADD THIS
+  }, [loadData, loadBusinesses, reloadTrigger]);
 
-  // ✅ Event handlers trigger state change instead of calling loadData directly
   useEffect(() => {
     const handler = () => {
       console.log("📣 Home: Event received, triggering reload");
-      setReloadTrigger((prev) => prev + 1); // ✅ Increment to trigger reload
+      setReloadTrigger((prev) => prev + 1);
     };
 
     appEvents.on("customerUpdated", handler);
@@ -129,7 +142,7 @@ export default function HomeScreen() {
       appEvents.off("supplierUpdated", handler);
       appEvents.off("businessSwitched", handler);
     };
-  }, []); // ✅ Empty dependencies - handler never changes
+  }, []);
 
   // Apply search and sort for customers
   useEffect(() => {
@@ -264,6 +277,13 @@ export default function HomeScreen() {
     setAddSupplierVisible(false);
   };
 
+  // ✅ ADD: Handle business switch
+  const handleBusinessSwitch = (business: Business) => {
+    setCurrentBusiness(business);
+    setBusinessSwitcherVisible(false);
+    appEvents.emit("businessSwitched");
+  };
+
   const handleSortPress = (column: SortOption) => {
     if (sortBy === column) {
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
@@ -309,8 +329,8 @@ export default function HomeScreen() {
                   ? styles.due
                   : styles.advance
                 : isDue
-                ? styles.payable
-                : styles.receivable,
+                  ? styles.payable
+                  : styles.receivable,
             ]}
           >
             ₹ {Math.abs(item.balance).toLocaleString("en-IN")}
@@ -321,10 +341,42 @@ export default function HomeScreen() {
                 ? "You will get"
                 : "You will give"
               : isDue
-              ? "You will pay"
-              : "You will get"}
+                ? "You will pay"
+                : "You will get"}
           </Text>
         </View>
+      </TouchableOpacity>
+    );
+  };
+
+  // ✅ ADD: Render business item in switcher
+  const renderBusinessItem = ({ item }: { item: Business }) => {
+    const isActive = item.id === currentBusiness?.id;
+
+    return (
+      <TouchableOpacity
+        style={[styles.businessItem, isActive && styles.businessItemActive]}
+        onPress={() => handleBusinessSwitch(item)}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.businessItemIcon, isActive && styles.businessItemIconActive]}>
+          <Ionicons
+            name="briefcase"
+            size={20}
+            color={isActive ? "white" : colors.accent}
+          />
+        </View>
+        <View style={styles.businessItemInfo}>
+          <Text style={[styles.businessItemName, isActive && styles.businessItemNameActive]}>
+            {item.name}
+          </Text>
+          {item.phone && (
+            <Text style={styles.businessItemPhone}>{item.phone}</Text>
+          )}
+        </View>
+        {isActive && (
+          <Ionicons name="checkmark-circle" size={24} color={colors.accent} />
+        )}
       </TouchableOpacity>
     );
   };
@@ -335,19 +387,39 @@ export default function HomeScreen() {
   return (
     <Screen>
       <View style={styles.container}>
-        {/* Custom Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.appName}>CreditBook</Text>
-            <Text style={styles.brandName}>by Trimplin</Text>
+        {/* ✅ UPDATED: Custom Header with Business Switcher */}
+        <TouchableOpacity
+          style={styles.header}
+          onPress={() => setBusinessSwitcherVisible(true)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.headerLeft}>
+            <View style={styles.businessIconContainer}>
+              <Ionicons name="briefcase" size={20} color={colors.accent} />
+            </View>
+            <View style={styles.businessNameContainer}>
+              <Text style={styles.businessLabel}>Business</Text>
+              <View style={styles.businessNameRow}>
+                <Text
+                  style={styles.businessName}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {currentBusiness?.name || "Select Business"}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+              </View>
+            </View>
           </View>
-          <View style={styles.headerRight}>
-            <Text style={styles.headerTitle}>Dashboard</Text>
-            <Text style={styles.headerSubtitle}>
-              Simple digital udhar bahi khata
-            </Text>
-          </View>
-        </View>
+
+          <TouchableOpacity
+            style={styles.profileIcon}
+            onPress={() => router.push('/settings')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="person-circle" size={40} color={colors.accent} />
+          </TouchableOpacity>
+        </TouchableOpacity>
 
         {/* Unified Summary Card */}
         <Card style={styles.summaryCard}>
@@ -506,14 +578,45 @@ export default function HomeScreen() {
                 <Text style={styles.emptyText}>
                   {searchQuery
                     ? `No ${activeTab} found for your search.`
-                    : `No ${activeTab} yet. Tap "+ Add ${
-                        activeTab === "customers" ? "customer" : "supplier"
-                      }" to create one.`}
+                    : `No ${activeTab} yet. Tap "+ Add ${activeTab === "customers" ? "customer" : "supplier"
+                    }" to create one.`}
                 </Text>
               </View>
             ) : null
           }
         />
+
+        {/* ✅ ADD: Business Switcher Modal */}
+        <Modal
+          visible={businessSwitcherVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setBusinessSwitcherVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Switch Business</Text>
+                <TouchableOpacity onPress={() => setBusinessSwitcherVisible(false)}>
+                  <Ionicons name="close" size={24} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              <FlatList
+                data={businesses}
+                keyExtractor={(item) => item.id.toString()}
+                renderItem={renderBusinessItem}
+                ItemSeparatorComponent={() => <View style={styles.businessSeparator} />}
+                ListEmptyComponent={
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>No businesses found</Text>
+                  </View>
+                }
+                style={styles.businessList}
+              />
+            </View>
+          </View>
+        </Modal>
 
         {/* Add Customer Modal */}
         <Modal
@@ -609,37 +712,54 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  // ✅ UPDATED: Header styles
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingTop: 12,
-    paddingBottom: 16,
+    paddingBottom: 20,
   },
-  appName: {
-    color: colors.accent,
-    fontSize: 22,
-    fontWeight: "700",
-    letterSpacing: 0.3,
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
   },
-  brandName: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginTop: 2,
+  businessIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: colors.inputBackground,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  headerRight: {
-    alignItems: "flex-end",
+  businessNameContainer: {
+    flex: 1,
   },
-  headerTitle: {
-    color: colors.text,
-    fontSize: 26,
-    fontWeight: "700",
-  },
-  headerSubtitle: {
+  businessLabel: {
     color: colors.textMuted,
     fontSize: 11,
-    marginTop: 2,
+    fontWeight: '500',
+    marginBottom: 2,
   },
+  businessNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  businessName: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '700',
+    flex: 1,
+  },
+  profileIcon: {
+    marginLeft: 12,
+  },
+
   summaryCard: {
     marginTop: 8,
     marginBottom: 16,
@@ -690,20 +810,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: colors.border,
-  },
-
-  archivedToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    marginBottom: 12,
-    gap: 8,
-  },
-  archivedToggleText: {
-    color: colors.textMuted,
-    fontSize: 14,
-    fontWeight: "600",
   },
 
   sortRow: {
@@ -819,12 +925,18 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: colors.border,
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   modalTitle: {
     color: colors.text,
     fontSize: 20,
     fontWeight: "700",
-    marginBottom: 16,
   },
   input: {
     backgroundColor: colors.inputBackground,
@@ -858,4 +970,56 @@ const styles = StyleSheet.create({
   },
   cancelText: { color: colors.textMuted, fontSize: 15 },
   saveText: { color: "white", fontSize: 15, fontWeight: "600" },
+
+  // ✅ ADD: Business switcher styles
+  businessList: {
+    maxHeight: 400,
+  },
+  businessItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: colors.inputBackground,
+    borderRadius: 12,
+    gap: 12,
+  },
+  businessItemActive: {
+    backgroundColor: colors.primary + '15',
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  businessItemIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: colors.card,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  businessItemIconActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  businessItemInfo: {
+    flex: 1,
+  },
+  businessItemName: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  businessItemNameActive: {
+    color: colors.accent,
+    fontWeight: '700',
+  },
+  businessItemPhone: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  businessSeparator: {
+    height: 12,
+  },
 });

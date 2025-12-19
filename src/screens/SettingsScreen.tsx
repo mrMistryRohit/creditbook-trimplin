@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import {
   Alert,
   FlatList,
+  BackHandler,
   Modal,
   ScrollView,
   StyleSheet,
@@ -50,6 +51,18 @@ export default function SettingsScreen() {
   const [businessDescription, setBusinessDescription] = useState("");
   const [businessPhone, setBusinessPhone] = useState("");
   const [businessAddress, setBusinessAddress] = useState("");
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        router.replace('/(tabs)'); // Go back to home
+        return true;
+      }
+    );
+
+    return () => backHandler.remove();
+  }, []);
 
   useEffect(() => {
     setName(user?.name || "");
@@ -266,13 +279,15 @@ export default function SettingsScreen() {
               <Text style={styles.menuItemText}>Edit</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => handleStockManagement(item)}
-            >
-              <Ionicons name="cube-outline" size={18} color={colors.primary} />
-              <Text style={styles.menuItemText}>Stock Management</Text>
-            </TouchableOpacity>
+            {isActive && (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => handleStockManagement(item)}
+              >
+                <Ionicons name="cube-outline" size={18} color={colors.primary} />
+                <Text style={styles.menuItemText}>Stock Management</Text>
+              </TouchableOpacity>
+            )}
 
             {businesses.length > 1 && (
               <TouchableOpacity
@@ -328,9 +343,20 @@ export default function SettingsScreen() {
   return (
     <Screen>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Settings</Text>
+        {/* ✅ UPDATED: Header matching CustomerDetailScreen style */}
+        <View style={styles.headerContainer}>
+          <TouchableOpacity
+            onPress={() => router.replace('/(tabs)')}
+            style={styles.backButton}
+          >
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
+          </TouchableOpacity>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>Settings</Text>
+            <Text style={styles.subtitle}>Manage your profile & businesses</Text>
+          </View>
         </View>
+
 
         {/* Profile Section */}
         <Card style={styles.profileCard}>
@@ -537,14 +563,35 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { paddingVertical: spacing.md },
+  container: {
+    flex: 1
+  },
+  headerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  backButton: {
+    marginRight: 12,
+    padding: 4,
+  },
+  headerText: {
+    flex: 1,
+  },
   title: {
+    color: colors.text,
     fontSize: 28,
     fontWeight: "700",
-    color: colors.text,
   },
-  profileCard: { marginVertical: spacing.md },
+  subtitle: {
+    color: colors.textMuted,
+    fontSize: typography.small,
+    marginTop: 2,
+  },
+  profileCard: {
+    marginBottom: spacing.md
+  },
   cardTitle: {
     fontSize: typography.subheading,
     fontWeight: "600",
@@ -579,7 +626,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: spacing.lg,
   },
-  saveDisabled: { opacity: 0.6 },
+  saveDisabled: {
+    opacity: 0.6
+  },
   saveText: {
     color: "white",
     fontSize: typography.body,

@@ -79,7 +79,7 @@ export default function SupplierDetailScreen() {
     const backHandler = BackHandler.addEventListener(
       "hardwareBackPress",
       () => {
-        router.replace("/(tabs)");
+        router.replace("/(tabs)/ledger");
         return true;
       }
     );
@@ -104,7 +104,7 @@ export default function SupplierDetailScreen() {
         transactionType,
         amountNum,
         note.trim() ||
-          (transactionType === "credit" ? "Goods Purchased" : "Payment Made"),
+        (transactionType === "credit" ? "Goods Purchased" : "Payment Made"),
         now
       );
 
@@ -167,7 +167,7 @@ export default function SupplierDetailScreen() {
             Alert.alert("Success", "Supplier has been archived", [
               {
                 text: "OK",
-                onPress: () => router.replace("/(tabs)"),
+                onPress: () => router.replace("/(tabs)/ledger"),
               },
             ]);
           },
@@ -196,8 +196,8 @@ export default function SupplierDetailScreen() {
       const message =
         currentBalance > 0
           ? `You still owe ₹${absBalance.toLocaleString(
-              "en-IN"
-            )} to the supplier`
+            "en-IN"
+          )} to the supplier`
           : `Supplier still owes ₹${absBalance.toLocaleString("en-IN")} to you`;
 
       Alert.alert("Cannot Delete", message);
@@ -220,7 +220,7 @@ export default function SupplierDetailScreen() {
             Alert.alert("Deleted", "Supplier has been deleted", [
               {
                 text: "OK",
-                onPress: () => router.replace("/(tabs)"),
+                onPress: () => router.replace("/(tabs)/ledger"),
               },
             ]);
           },
@@ -283,7 +283,7 @@ export default function SupplierDetailScreen() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => router.replace("/(tabs)")}
+            onPress={() => router.replace("/(tabs)/ledger")}
             style={styles.backButton}
           >
             <Ionicons name="arrow-back" size={24} color={colors.text} />
@@ -507,7 +507,9 @@ export default function SupplierDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: {
+    flex: 1
+  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -553,8 +555,12 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: "700",
   },
-  payableBalance: { color: colors.danger },
-  receivableBalance: { color: colors.accent },
+  payableBalance: {
+    color: colors.danger
+  },
+  receivableBalance: {
+    color: colors.accent
+  },
   addButton: {
     marginBottom: 24,
   },
@@ -585,8 +591,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 12,
   },
-  creditIcon: { backgroundColor: colors.danger },
-  debitIcon: { backgroundColor: colors.accent },
+  creditIcon: {
+    backgroundColor: colors.danger
+  },
+  debitIcon: {
+    backgroundColor: colors.accent
+  },
   transactionInfo: {
     flex: 1,
   },
@@ -607,9 +617,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
   },
-  creditText: { color: colors.danger },
-  debitText: { color: colors.accent },
-  separator: { height: 12 },
+  creditText: {
+    color: colors.danger
+  },
+  debitText: {
+    color: colors.accent
+  },
+  separator: {
+    height: 12
+  },
   emptyContainer: {
     paddingVertical: 40,
     alignItems: "center",

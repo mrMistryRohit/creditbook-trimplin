@@ -65,7 +65,6 @@ eas build --platform android --profile preview
 creditbook-trimplin
 ├─ 📁.expo
 ├─ 📁.vscode
-│  ├─ 📁.react
 │  ├─ 📄extensions.json
 │  └─ 📄settings.json
 ├─ 📁app
