@@ -80,9 +80,12 @@ creditbook-trimplin
 │  │  ├─ 📄ledger.tsx
 │  │  ├─ 📄reports.tsx
 │  │  └─ 📄_layout.tsx
+│  ├─ 📄add-bill-item.tsx
 │  ├─ 📄add-stock-item.tsx
 │  ├─ 📄archived-customers.tsx
 │  ├─ 📄archived-suppliers.tsx
+│  ├─ 📄bill-detail.tsx
+│  ├─ 📄create-bill.tsx
 │  ├─ 📄customer-detail.tsx
 │  ├─ 📄modal.tsx
 │  ├─ 📄settings.tsx
@@ -130,8 +133,10 @@ creditbook-trimplin
 │  │  └─ 📄Screen.tsx
 │  ├─ 📁context
 │  │  ├─ 📄AuthContext.tsx
+│  │  ├─ 📄BillContext.tsx
 │  │  └─ 📄BusinessContext.tsx
 │  ├─ 📁database
+│  │  ├─ 📄billRepo.ts
 │  │  ├─ 📄businessRepo.ts
 │  │  ├─ 📄customerRepo.ts
 │  │  ├─ 📄db.ts
