@@ -61,10 +61,13 @@ then (for android apk)
 eas build --platform android --profile preview
 ```
 
+# Directory Tree
+
 ```
 creditbook-trimplin
 ├─ 📁.expo
 ├─ 📁.vscode
+│  ├─ 📁.react
 │  ├─ 📄extensions.json
 │  └─ 📄settings.json
 ├─ 📁app
@@ -76,13 +79,13 @@ creditbook-trimplin
 │  │  ├─ 📄index.tsx
 │  │  ├─ 📄ledger.tsx
 │  │  ├─ 📄reports.tsx
-│  │  ├─ 📄settings.tsx
 │  │  └─ 📄_layout.tsx
 │  ├─ 📄add-stock-item.tsx
 │  ├─ 📄archived-customers.tsx
 │  ├─ 📄archived-suppliers.tsx
 │  ├─ 📄customer-detail.tsx
 │  ├─ 📄modal.tsx
+│  ├─ 📄settings.tsx
 │  ├─ 📄stock-item-detail.tsx
 │  ├─ 📄stock.tsx
 │  ├─ 📄supplier-detail.tsx
@@ -161,3 +164,7 @@ creditbook-trimplin
 ├─ 📄README.md
 └─ 📄tsconfig.json
 ```
+
+---
+
+## END
