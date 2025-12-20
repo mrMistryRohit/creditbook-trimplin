@@ -1,6 +1,7 @@
 import { Slot, useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
+import { BillProvider } from "../src/context/BillContext";
 import { BusinessProvider } from "../src/context/BusinessContext";
 import { getDatabaseStats, initDB } from "../src/database/db";
 
@@ -47,7 +48,9 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <BusinessProvider>
-        <RootLayoutNav />
+        <BillProvider>
+          <RootLayoutNav />
+        </BillProvider>
       </BusinessProvider>
     </AuthProvider>
   );

@@ -412,6 +412,18 @@ export default function CustomerDetailScreen() {
           />
         </View>
 
+        {/* Create Bill button */}
+        <PrimaryButton
+          label="Create Bill"
+          onPress={() =>
+            router.push({
+              pathname: "./create-bill",
+              params: { customerId: customerData.id.toString() },
+            })
+          }
+          style={{ marginBottom: spacing.md }}
+        />
+
         {/* Date Filters */}
         <View style={styles.filterRow}>
           <TouchableOpacity

@@ -111,6 +111,42 @@ export const initDB = async () => {
         FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
       );
 
+            -- Bills table
+      CREATE TABLE IF NOT EXISTS bills (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        business_id INTEGER NOT NULL,
+        customer_id INTEGER NOT NULL,
+        bill_number TEXT NOT NULL,
+        bill_date TEXT NOT NULL,
+        notes TEXT,
+        total REAL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+        FOREIGN KEY (business_id) REFERENCES businesses (id) ON DELETE CASCADE,
+        FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE CASCADE
+      );
+
+      -- Bill items table
+      CREATE TABLE IF NOT EXISTS bill_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bill_id INTEGER NOT NULL,
+        inventory_id INTEGER,
+        item_name TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit TEXT NOT NULL,
+        mrp REAL NOT NULL,
+        rate REAL NOT NULL,
+        total REAL NOT NULL,
+        FOREIGN KEY (bill_id) REFERENCES bills (id) ON DELETE CASCADE,
+        FOREIGN KEY (inventory_id) REFERENCES inventory (id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_bills_business ON bills(business_id);
+      CREATE INDEX IF NOT EXISTS idx_bills_customer ON bills(customer_id);
+      CREATE INDEX IF NOT EXISTS idx_bill_items_bill ON bill_items(bill_id);
+
+
       -- Create indexes for better performance
       CREATE INDEX IF NOT EXISTS idx_businesses_user ON businesses(user_id);
       CREATE INDEX IF NOT EXISTS idx_customers_user ON customers(user_id);
