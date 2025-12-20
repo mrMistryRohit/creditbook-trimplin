@@ -15,6 +15,7 @@ export type BillItemDraft = {
 type BillContextType = {
   draftItems: BillItemDraft[];
   addDraftItem: (item: BillItemDraft) => void;
+  removeDraftItem: (index: number) => void;
   clearDraftItems: () => void;
 };
 
@@ -27,12 +28,16 @@ export const BillProvider = ({ children }: { children: ReactNode }) => {
     setDraftItems((prev) => [...prev, item]);
   };
 
+  const removeDraftItem = (index: number) => {
+    setDraftItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const clearDraftItems = () => {
     setDraftItems([]);
   };
 
   return (
-    <BillContext.Provider value={{ draftItems, addDraftItem, clearDraftItems }}>
+    <BillContext.Provider value={{ draftItems, addDraftItem, removeDraftItem, clearDraftItems }}>
       {children}
     </BillContext.Provider>
   );

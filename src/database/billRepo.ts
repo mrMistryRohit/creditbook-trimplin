@@ -169,6 +169,21 @@ export async function createBillWithTransaction(options: {
   return billId;
 }
 
+/**
+ * Get the next bill number for a business
+ */
+export async function getNextBillNumber(businessId: number): Promise<string> {
+  const result = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM bills WHERE business_id = ?`,
+    [businessId]
+  );
+
+  const count = result?.count || 0;
+  const nextNumber = count + 1;
+
+  return `BILL-${nextNumber}`;
+}
+
 export async function getBillsForCustomer(
   businessId: number,
   customerId: number
