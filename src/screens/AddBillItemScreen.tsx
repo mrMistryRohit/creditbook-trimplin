@@ -39,7 +39,7 @@ export default function AddBillItemScreen() {
   const [inventoryId, setInventoryId] = useState<number | undefined>();
 
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  
+
   // Dropdown states
   const [showItemDropdown, setShowItemDropdown] = useState(false);
   const [showUnitDropdown, setShowUnitDropdown] = useState(false);
@@ -117,27 +117,35 @@ export default function AddBillItemScreen() {
         <View style={styles.content}>
           <Text style={styles.pageTitle}>Add New Item</Text>
 
-          {/* Item Name with Dropdown */}
+          {/* Item Name with optional Stock picker */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Item Name *</Text>
-            <TouchableOpacity
-              style={styles.dropdownButton}
-              onPress={() => setShowItemDropdown(true)}
+
+            <View
+              style={{ flexDirection: "row", gap: 8, alignItems: "center" }}
             >
-              <Text
-                style={[
-                  styles.dropdownText,
-                  !itemName && styles.placeholderText,
-                ]}
-              >
-                {itemName || "Select or enter item name"}
-              </Text>
-              <Ionicons
-                name="chevron-down"
-                size={20}
-                color={colors.textMuted}
+              {/* Editable text input */}
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="Enter item name"
+                value={itemName}
+                onChangeText={setItemName}
+                placeholderTextColor={colors.textMuted}
               />
-            </TouchableOpacity>
+
+              {/* Stock picker button */}
+              <TouchableOpacity
+                style={styles.stockButton}
+                onPress={() => setShowItemDropdown(true)}
+              >
+                <Ionicons
+                  name="cube-outline"
+                  size={18}
+                  color={colors.primary}
+                />
+                <Text style={styles.stockButtonText}>Stock</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Quantity with +/- buttons */}
@@ -345,7 +353,11 @@ export default function AddBillItemScreen() {
                     {option}
                   </Text>
                   {unit === option && (
-                    <Ionicons name="checkmark" size={20} color={colors.accent} />
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={colors.accent}
+                    />
                   )}
                 </TouchableOpacity>
               ))}
@@ -390,7 +402,11 @@ export default function AddBillItemScreen() {
                     {option}
                   </Text>
                   {taxType === option && (
-                    <Ionicons name="checkmark" size={20} color={colors.accent} />
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      color={colors.accent}
+                    />
                   )}
                 </TouchableOpacity>
               ))}
@@ -577,6 +593,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  stockButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.card,
+  },
+  stockButtonText: {
+    marginLeft: 4,
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+
   pickerTitle: {
     fontSize: 18,
     fontWeight: "700",
