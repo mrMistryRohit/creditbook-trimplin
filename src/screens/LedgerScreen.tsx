@@ -276,6 +276,58 @@ export default function LedgerScreen() {
     const isCustomer = activeTab === "customers";
     const isDue = item.balance > 0;
 
+    const today = new Date();
+    const todayStr = today.toLocaleDateString("en-IN");
+
+    const dueDate = isCustomer ? (item as Customer).due_date || null : null;
+    const createdAt = (item as Customer).created_at as string | undefined;
+
+    let createdDateStr: string | null = null;
+    if (createdAt) {
+      const created = new Date(createdAt);
+      if (!Number.isNaN(created.getTime())) {
+        createdDateStr = created.toLocaleDateString("en-IN");
+      }
+    }
+
+    type SubtitleKind = "due" | "last" | "noneToday" | "none";
+    let kind: SubtitleKind;
+    let value: string | null = null;
+
+    if (isCustomer && dueDate) {
+      kind = "due";
+      value = dueDate;
+    } else if (item.last_activity) {
+      kind = "last";
+      value = item.last_activity === todayStr ? "Today" : item.last_activity;
+    } else if (createdDateStr === todayStr) {
+      kind = "noneToday";
+    } else {
+      kind = "none";
+    }
+
+    const renderSubtitle = () => {
+      switch (kind) {
+        case "due":
+          return <Text style={styles.itemSubtitleDue}>Due on: {value}</Text>;
+        case "last":
+          return (
+            <Text style={styles.itemSubtitleLast}>
+              Last transaction on: {value}
+            </Text>
+          );
+        case "noneToday":
+          return (
+            <Text style={styles.itemSubtitleNone}>
+              No activity (created today)
+            </Text>
+          );
+        case "none":
+        default:
+          return <Text style={styles.itemSubtitleNone}>No activity</Text>;
+      }
+    };
+
     return (
       <TouchableOpacity
         style={styles.itemRow}
@@ -284,9 +336,7 @@ export default function LedgerScreen() {
       >
         <View style={styles.itemInfo}>
           <Text style={styles.itemName}>{item.name}</Text>
-          <Text style={styles.itemSubtitle}>
-            {item.phone || item.last_activity || "No activity"}
-          </Text>
+          {renderSubtitle()}
         </View>
         <View style={styles.balanceContainer}>
           <Text
@@ -589,11 +639,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  itemSubtitle: {
-    color: colors.textMuted,
-    fontSize: 13,
-    marginTop: 4,
-  },
+  // itemSubtitle: {
+  //   color: colors.textMuted,
+  //   fontSize: 13,
+  //   marginTop: 4,
+  // },
   balanceContainer: {
     alignItems: "flex-end",
     marginLeft: 16,
@@ -621,5 +671,28 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     textAlign: "center",
     lineHeight: 20,
+  },
+  itemSubtitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginTop: 4,
+  },
+  itemSubtitleDue: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#FF4D4F", // bright red
+  },
+  itemSubtitleLast: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#5AC8FA", // blue for full "Last transaction on: ..."
+  },
+  itemSubtitleNone: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#F39C12", // amber for "No activity ..."
   },
 });

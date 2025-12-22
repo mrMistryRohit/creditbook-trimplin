@@ -31,8 +31,8 @@ export const initDB = async () => {
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
       );
 
-      -- Customers table
-      CREATE TABLE IF NOT EXISTS customers (
+        -- Customers table
+        CREATE TABLE IF NOT EXISTS customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
         business_id INTEGER,
@@ -41,10 +41,12 @@ export const initDB = async () => {
         balance REAL DEFAULT 0,
         last_activity TEXT,
         archived INTEGER DEFAULT 0,
+        due_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
         FOREIGN KEY (business_id) REFERENCES businesses (id) ON DELETE CASCADE
       );
+
 
       -- Suppliers table
       CREATE TABLE IF NOT EXISTS suppliers (
@@ -111,7 +113,7 @@ export const initDB = async () => {
         FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
       );
 
-            -- Bills table
+      -- Bills table
       CREATE TABLE IF NOT EXISTS bills (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -166,6 +168,7 @@ export const initDB = async () => {
     await migrateRenamePasswordColumn();
     await migrateAddArchivedColumn();
     await migrateAddBusinessSupport();
+    await migrateAddCustomerDueDate(); // 👈 new migration
 
     console.log("✅ Database initialized successfully");
   } catch (error) {
@@ -361,6 +364,30 @@ const migrateAddBusinessSupport = async () => {
   } catch (error) {
     console.error("❌ Migration error (business support):", error);
     throw error;
+  }
+};
+
+/**
+ * Migration 4: Add due_date column to customers
+ * Stores customer-wise due date for reminders
+ */
+const migrateAddCustomerDueDate = async () => {
+  try {
+    const result = await db.getFirstAsync<{ count: number }>(
+      `SELECT COUNT(*) as count FROM pragma_table_info('customers') WHERE name='due_date'`
+    );
+
+    if (result && result.count === 0) {
+      console.log("🔄 Migration: Adding due_date column to customers...");
+      await db.execAsync(`
+        ALTER TABLE customers ADD COLUMN due_date TEXT;
+      `);
+      console.log("✅ Migration: due_date column added to customers");
+    } else {
+      console.log("✓ Migration: customers.due_date already exists");
+    }
+  } catch (error) {
+    console.error("❌ Migration error (due_date):", error);
   }
 };
 

@@ -147,9 +147,12 @@ creditbook-trimplin
 │  │  ├─ 📄transactionRepo.ts
 │  │  └─ 📄userRepo.ts
 │  ├─ 📁screens
+│  │  ├─ 📄AddBillItemScreen.tsx
 │  │  ├─ 📄AddStockItemScreen.tsx
 │  │  ├─ 📄ArchivedCustomersScreen.tsx
 │  │  ├─ 📄ArchivedSuppliersScreen.tsx
+│  │  ├─ 📄BillDetailScreen.tsx
+│  │  ├─ 📄CreateBillScreen.tsx
 │  │  ├─ 📄CustomerDetailScreen.tsx
 │  │  ├─ 📄HomeScreen.tsx
 │  │  ├─ 📄LedgerScreen.tsx

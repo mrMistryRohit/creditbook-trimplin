@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   BackHandler,
@@ -12,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { colors, radius, spacing, typography } from "../../constants/theme";
+import { colors, spacing, typography } from "../../constants/theme";
 import Card from "../components/Card";
 import PrimaryButton from "../components/PrimaryButton";
 import Screen from "../components/Screen";
@@ -24,6 +25,7 @@ import {
   deleteCustomer,
   unarchiveCustomer,
   updateCustomer,
+  updateCustomerDueDate,
 } from "../database/customerRepo";
 import {
   Transaction,
@@ -41,9 +43,8 @@ interface CustomerParam {
   balance: number;
   last_activity?: string | null;
   archived?: number;
+  due_date?: string | null;
 }
-
-type DateFilter = "all" | "today" | "week" | "month";
 
 export default function CustomerDetailScreen() {
   const params = useLocalSearchParams();
@@ -63,26 +64,37 @@ export default function CustomerDetailScreen() {
         archived: 0,
       };
 
-  const [customerData, setCustomerData] = useState<Customer>(customer);
+  const [customerData, setCustomerData] = useState<Customer>(
+    customer as Customer
+  );
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [filteredTransactions, setFilteredTransactions] = useState<
-    Transaction[]
-  >([]);
-  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
 
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
-
-  // Edit customer modal state
+  // Edit customer modal
   const [editCustomerVisible, setEditCustomerVisible] = useState(false);
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
 
+  // You Gave modal
+  const [showGivenModal, setShowGivenModal] = useState(false);
+  const [givenAmount, setGivenAmount] = useState("");
+  const [givenNote, setGivenNote] = useState("");
+  const [givenDate, setGivenDate] = useState<Date>(new Date());
+
+  // You Received modal
+  const [showReceivedModal, setShowReceivedModal] = useState(false);
+  const [receivedAmount, setReceivedAmount] = useState("");
+  const [receivedNote, setReceivedNote] = useState("");
+  const [receivedDate, setReceivedDate] = useState<Date>(new Date());
+
+  // Due date UI placeholder
+  // const [showDueDateModal, setShowDueDateModal] = useState(false);
+  // const [selectedDueDate, setSelectedDueDate] = useState<Date | null>(null);
+
   const loadTransactions = async () => {
     if (!user || !customer.id) return;
     const list = await getTransactionsForCustomer(user.id, customer.id);
-    setTransactions(list);
+    setTransactions(list ?? []);
   };
 
   useEffect(() => {
@@ -100,86 +112,27 @@ export default function CustomerDetailScreen() {
     return () => backHandler.remove();
   }, []);
 
-  // Apply date filter
-  useEffect(() => {
-    let result = [...transactions];
+  const balance = useMemo(
+    () =>
+      transactions.reduce((bal, t) => {
+        return t.type === "credit" ? bal + t.amount : bal - t.amount;
+      }, 0),
+    [transactions]
+  );
 
-    if (dateFilter !== "all") {
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const isDue = balance > 0;
 
-      result = result.filter((txn) => {
-        const txnDate = parseDateString(txn.date);
-        if (!txnDate) return true;
-
-        switch (dateFilter) {
-          case "today":
-            return txnDate >= today;
-          case "week":
-            const weekAgo = new Date(today);
-            weekAgo.setDate(weekAgo.getDate() - 7);
-            return txnDate >= weekAgo;
-          case "month":
-            const monthAgo = new Date(today);
-            monthAgo.setMonth(monthAgo.getMonth() - 1);
-            return txnDate >= monthAgo;
-          default:
-            return true;
-        }
-      });
-    }
-
-    setFilteredTransactions(result);
-  }, [transactions, dateFilter]);
-
-  const parseDateString = (dateStr: string): Date | null => {
-    try {
-      const parts = dateStr.split(", ");
-      if (parts.length < 2) return null;
-
-      const datePart = parts[0];
-      const [day, month, year] = datePart.split("/").map(Number);
-
-      return new Date(year, month - 1, day);
-    } catch {
-      return null;
-    }
-  };
-
-  const handleAddTransaction = async (type: "credit" | "debit") => {
-    if (!user || !currentBusiness || !customer) return;
-    if (!amount.trim() || isNaN(parseFloat(amount))) {
-      Alert.alert("Validation", "Please enter a valid amount");
-      return;
-    }
-
-    const amt = parseFloat(amount);
-    if (Number.isNaN(amt) || amt <= 0) {
-      Alert.alert("Validation", "Amount must be greater than 0");
-      return;
-    }
-
-    try {
-      await addTransactionForCustomer(
-        user.id,
-        currentBusiness.id,
-        customer.id,
-        type,
-        amt,
-        note || (type === "credit" ? "Udhar given" : "Payment received"),
-        new Date().toLocaleString("en-IN")
-      );
-
-      appEvents.emit("customerUpdated");
-
-      setAmount("");
-      setNote("");
-      await loadTransactions();
-    } catch (error) {
-      Alert.alert("Error", "Failed to add transaction");
-      console.error(error);
-    }
-  };
+  // Build list with running remaining amount (from oldest to newest)
+  const transactionsWithRunning = useMemo(() => {
+    let running = 0;
+    const oldestFirst = [...transactions].reverse();
+    const withRunning = oldestFirst.map((t) => {
+      const delta = t.type === "credit" ? t.amount : -t.amount;
+      running += delta;
+      return { ...t, runningBalance: running };
+    });
+    return withRunning.reverse();
+  }, [transactions]);
 
   const handleArchiveCustomer = () => {
     Alert.alert(
@@ -241,12 +194,29 @@ export default function CustomerDetailScreen() {
   };
 
   const handleDeleteCustomer = () => {
-    // Calculate current balance
-    const currentBalance = transactions.reduce((bal, t) => {
-      return t.type === "credit" ? bal + t.amount : bal - t.amount;
-    }, 0);
+    if (!transactions.length) {
+      // Quick path
+      if (!user || !customerData.id) return;
+      Alert.alert(
+        "Delete Customer",
+        "Are you sure you want to delete this customer?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              await deleteCustomer(user!.id, customerData.id);
+              appEvents.emit("customerUpdated");
+              router.replace("/(tabs)/ledger");
+            },
+          },
+        ]
+      );
+      return;
+    }
 
-    // Check if balance is not zero
+    const currentBalance = balance;
     if (currentBalance !== 0) {
       const absBalance = Math.abs(currentBalance);
       const message =
@@ -260,7 +230,6 @@ export default function CustomerDetailScreen() {
       return;
     }
 
-    // Proceed with delete if balance is zero
     Alert.alert(
       "Delete Customer",
       "Are you sure you want to delete this customer? This will also delete all transactions.",
@@ -285,13 +254,65 @@ export default function CustomerDetailScreen() {
     );
   };
 
-  const balance = transactions.reduce((bal, t) => {
-    return t.type === "credit" ? bal + t.amount : bal - t.amount;
-  }, 0);
+  const handleAddGivenEntryOnly = async () => {
+    if (!user || !currentBusiness) return;
 
-  const isDue = balance > 0;
+    const amt = parseFloat(givenAmount);
+    if (!givenAmount.trim() || isNaN(amt) || amt <= 0) {
+      Alert.alert("Validation", "Please enter a valid amount");
+      return;
+    }
 
-  const renderTransaction = ({ item }: { item: Transaction }) => {
+    await addTransactionForCustomer(
+      user.id,
+      currentBusiness.id,
+      customer.id,
+      "credit",
+      amt,
+      givenNote || "Udhar given",
+      givenDate.toLocaleDateString("en-IN")
+    );
+
+    appEvents.emit("customerUpdated");
+    setShowGivenModal(false);
+    setGivenAmount("");
+    setGivenNote("");
+    setGivenDate(new Date());
+    await loadTransactions();
+  };
+
+  const handleAddReceived = async () => {
+    if (!user || !currentBusiness) return;
+
+    const amt = parseFloat(receivedAmount);
+    if (!receivedAmount.trim() || isNaN(amt) || amt <= 0) {
+      Alert.alert("Validation", "Please enter a valid amount");
+      return;
+    }
+
+    await addTransactionForCustomer(
+      user.id,
+      currentBusiness.id,
+      customer.id,
+      "debit",
+      amt,
+      receivedNote || "Payment received",
+      receivedDate.toLocaleDateString("en-IN")
+    );
+
+    appEvents.emit("customerUpdated");
+    setShowReceivedModal(false);
+    setReceivedAmount("");
+    setReceivedNote("");
+    setReceivedDate(new Date());
+    await loadTransactions();
+  };
+
+  const renderTransaction = ({
+    item,
+  }: {
+    item: Transaction & { runningBalance?: number };
+  }) => {
     const isCredit = item.type === "credit";
     return (
       <Card
@@ -307,6 +328,12 @@ export default function CustomerDetailScreen() {
           <View style={styles.txnInfo}>
             <Text style={styles.txnNote}>{item.note || ""}</Text>
             <Text style={styles.txnDate}>{item.date}</Text>
+            {typeof item.runningBalance === "number" && (
+              <Text style={styles.txnBalance}>
+                Remaining: ₹
+                {Math.abs(item.runningBalance).toLocaleString("en-IN")}
+              </Text>
+            )}
           </View>
           <View style={styles.amountBlock}>
             <Text
@@ -318,7 +345,7 @@ export default function CustomerDetailScreen() {
               {isCredit ? "+" : "-"} ₹ {item.amount.toLocaleString("en-IN")}
             </Text>
             <Text style={styles.txnType}>
-              {isCredit ? "You gave udhar" : "You received payment"}
+              {isCredit ? "Send" : "Received payment"}
             </Text>
           </View>
         </View>
@@ -326,10 +353,37 @@ export default function CustomerDetailScreen() {
     );
   };
 
+  // Due date UI
+  const [showDueDateModal, setShowDueDateModal] = useState(false);
+  const [tempDueDate, setTempDueDate] = useState<Date | null>(null);
+
+  const handleClearDueDate = async () => {
+    if (!user || !customerData.id) return;
+
+    await updateCustomerDueDate(user.id, customerData.id, null);
+    setCustomerData({ ...customerData, due_date: null });
+    appEvents.emit("customerUpdated");
+  };
+
+  const [showTxnDatePicker, setShowTxnDatePicker] = useState(false);
+  const [txnDateTarget, setTxnDateTarget] = useState<"given" | "received">(
+    "given"
+  );
+
+  // helper
+  const parseEnInDate = (value: string | null | undefined): Date => {
+    if (!value) return new Date(); // fallback to today
+
+    const [day, month, year] = value.split("/").map(Number);
+    if (!day || !month || !year) return new Date();
+
+    return new Date(year, month - 1, day);
+  };
+
   return (
     <Screen>
       <View style={styles.container}>
-        {/* Back Button Header */}
+        {/* Header */}
         <View style={styles.headerContainer}>
           <TouchableOpacity
             onPress={() => router.replace("/(tabs)/ledger")}
@@ -367,8 +421,9 @@ export default function CustomerDetailScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Balance */}
         <Card style={styles.balanceCard}>
-          <Text style={styles.balanceLabel}>Current balance</Text>
+          <Text style={styles.balanceLabel}>Current Balance</Text>
           <Text
             style={[styles.balanceValue, isDue ? styles.credit : styles.debit]}
           >
@@ -381,39 +436,48 @@ export default function CustomerDetailScreen() {
           </Text>
         </Card>
 
-        <View style={styles.inputRow}>
-          <TextInput
-            placeholder="Amount"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="numeric"
-            value={amount}
-            onChangeText={setAmount}
-            style={styles.input}
-          />
-          <TextInput
-            placeholder="Note (optional)"
-            placeholderTextColor={colors.textMuted}
-            value={note}
-            onChangeText={setNote}
-            style={[styles.input, { flex: 1 }]}
-          />
-        </View>
+        {/* Due date row (simple text for now) */}
+        <Card style={[styles.balanceCard, { marginBottom: spacing.md }]}>
+          <View style={styles.dueRow}>
+            <View>
+              <Text style={styles.balanceLabel}>Due Date</Text>
+              <Text style={styles.dueDateText}>
+                {customerData.due_date || "No due date set"}
+              </Text>
+            </View>
+            {/* Hook this to a calendar modal later */}
+            {/* <TouchableOpacity onPress={() => setShowDueDateModal(true)}> */}
+            <TouchableOpacity
+              onPress={() => {
+                const initial = parseEnInDate(customerData.due_date || null);
+                setTempDueDate(initial);
+                setShowDueDateModal(true);
+              }}
+            >
+              <Text style={styles.dueSetText}>Set / Change</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleClearDueDate}>
+              <Text style={styles.dueClearText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
 
+        {/* Action buttons */}
         <View style={styles.buttonRow}>
           <PrimaryButton
-            label="You gave udhar"
-            onPress={() => handleAddTransaction("credit")}
+            label="Send"
+            onPress={() => setShowGivenModal(true)}
             style={[styles.smallButton, { backgroundColor: colors.accent }]}
           />
           <PrimaryButton
-            label="You received"
-            onPress={() => handleAddTransaction("debit")}
+            label="Received"
+            onPress={() => setShowReceivedModal(true)}
             style={[styles.smallButton, { backgroundColor: colors.danger }]}
           />
         </View>
 
         {/* Create Bill button */}
-        <PrimaryButton
+        {/* <PrimaryButton
           label="Create Bill"
           onPress={() =>
             router.push({
@@ -422,89 +486,20 @@ export default function CustomerDetailScreen() {
             })
           }
           style={{ marginBottom: spacing.md }}
-        />
+        /> */}
 
-        {/* Date Filters */}
-        <View style={styles.filterRow}>
-          <TouchableOpacity
-            style={[
-              styles.filterButton,
-              dateFilter === "all" && styles.filterButtonActive,
-            ]}
-            onPress={() => setDateFilter("all")}
-          >
-            <Text
-              style={[
-                styles.filterText,
-                dateFilter === "all" && styles.filterTextActive,
-              ]}
-            >
-              All
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.filterButton,
-              dateFilter === "today" && styles.filterButtonActive,
-            ]}
-            onPress={() => setDateFilter("today")}
-          >
-            <Text
-              style={[
-                styles.filterText,
-                dateFilter === "today" && styles.filterTextActive,
-              ]}
-            >
-              Today
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.filterButton,
-              dateFilter === "week" && styles.filterButtonActive,
-            ]}
-            onPress={() => setDateFilter("week")}
-          >
-            <Text
-              style={[
-                styles.filterText,
-                dateFilter === "week" && styles.filterTextActive,
-              ]}
-            >
-              This Week
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.filterButton,
-              dateFilter === "month" && styles.filterButtonActive,
-            ]}
-            onPress={() => setDateFilter("month")}
-          >
-            <Text
-              style={[
-                styles.filterText,
-                dateFilter === "month" && styles.filterTextActive,
-              ]}
-            >
-              This Month
-            </Text>
-          </TouchableOpacity>
-        </View>
-
+        {/* Transactions */}
         <Text style={styles.sectionTitle}>
-          Transactions ({filteredTransactions.length})
+          Transactions ({transactionsWithRunning.length})
         </Text>
         <FlatList
-          data={filteredTransactions}
+          data={transactionsWithRunning}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderTransaction}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 24 }}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>
-              No transactions for this period.
-            </Text>
+            <Text style={styles.emptyText}>No transactions yet.</Text>
           }
         />
 
@@ -547,6 +542,205 @@ export default function CustomerDetailScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* You Gave(Send) Modal */}
+        <Modal visible={showGivenModal} transparent animationType="slide">
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Send</Text>
+
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Amount"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="numeric"
+                value={givenAmount}
+                onChangeText={setGivenAmount}
+              />
+
+              <TouchableOpacity
+                onPress={() => {
+                  setTxnDateTarget("given");
+                  setShowTxnDatePicker(true);
+                }}
+              >
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="Date"
+                  placeholderTextColor={colors.textMuted}
+                  value={givenDate.toLocaleDateString("en-IN")}
+                  editable={false}
+                  pointerEvents="none"
+                />
+              </TouchableOpacity>
+
+              <TextInput
+                style={[styles.modalInput, { height: 80 }]}
+                placeholder="Note (optional)"
+                placeholderTextColor={colors.textMuted}
+                value={givenNote}
+                onChangeText={setGivenNote}
+                multiline
+              />
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => {
+                    setShowGivenModal(false);
+                    setGivenAmount("");
+                    setGivenNote("");
+                    setGivenDate(new Date());
+                  }}
+                >
+                  <Text style={styles.cancelText}>Close</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={handleAddGivenEntryOnly}
+                >
+                  <Text style={styles.saveText}>Entry</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.saveButton]}
+                  onPress={() => {
+                    // Navigate to bill screen with preset info
+                    setShowGivenModal(false);
+                    router.push({
+                      pathname: "./create-bill",
+                      params: {
+                        customerId: customerData.id.toString(),
+                        presetAmount: givenAmount || "",
+                        presetNote: givenNote || "",
+                      },
+                    });
+                  }}
+                >
+                  <Text style={styles.saveText}>Bill</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* You Received Modal */}
+        <Modal visible={showReceivedModal} transparent animationType="slide">
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>You Received</Text>
+
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Amount"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="numeric"
+                value={receivedAmount}
+                onChangeText={setReceivedAmount}
+              />
+
+              <TouchableOpacity
+                onPress={() => {
+                  setTxnDateTarget("received"); // ✅ use "received"
+                  setShowTxnDatePicker(true);
+                }}
+              >
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="Date"
+                  placeholderTextColor={colors.textMuted}
+                  value={receivedDate.toLocaleDateString("en-IN")} // ✅ use receivedDate
+                  editable={false}
+                  pointerEvents="none"
+                />
+              </TouchableOpacity>
+
+              <TextInput
+                style={[styles.modalInput, { height: 80 }]}
+                placeholder="Note (optional)"
+                placeholderTextColor={colors.textMuted}
+                value={receivedNote}
+                onChangeText={setReceivedNote}
+                multiline
+              />
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => {
+                    setShowReceivedModal(false);
+                    setReceivedAmount("");
+                    setReceivedNote("");
+                    setReceivedDate(new Date());
+                  }}
+                >
+                  <Text style={styles.cancelText}>Close</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.saveButton]}
+                  onPress={handleAddReceived}
+                >
+                  <Text style={styles.saveText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {showDueDateModal && (
+          <DateTimePicker
+            value={tempDueDate || new Date()}
+            mode="date"
+            display="calendar"
+            onChange={async (event, selectedDate) => {
+              // User pressed Cancel
+              if (event.type === "dismissed") {
+                setShowDueDateModal(false);
+                return;
+              }
+
+              if (!selectedDate || !user || !customerData.id) {
+                setShowDueDateModal(false);
+                return;
+              }
+
+              // Update local state and DB
+              const stored = selectedDate.toLocaleDateString("en-IN");
+              setTempDueDate(selectedDate);
+              await updateCustomerDueDate(user.id, customerData.id, stored);
+              setCustomerData({ ...customerData, due_date: stored });
+              appEvents.emit("customerUpdated");
+
+              // Close picker
+              setShowDueDateModal(false);
+            }}
+          />
+        )}
+        {showTxnDatePicker && (
+          <DateTimePicker
+            value={txnDateTarget === "given" ? givenDate : receivedDate}
+            mode="date"
+            display="calendar"
+            maximumDate={new Date()} // cannot pick future dates
+            onChange={(_, selectedDate) => {
+              if (!selectedDate) {
+                setShowTxnDatePicker(false);
+                return;
+              }
+
+              // clamp to today if somehow future
+              const today = new Date();
+              if (selectedDate > today) selectedDate = today;
+
+              if (txnDateTarget === "given") {
+                setGivenDate(selectedDate);
+              } else {
+                setReceivedDate(selectedDate);
+              }
+
+              setShowTxnDatePicker(false);
+            }}
+          />
+        )}
       </View>
     </Screen>
   );
@@ -585,7 +779,7 @@ const styles = StyleSheet.create({
     fontSize: typography.small,
     marginTop: 2,
   },
-  balanceCard: { marginBottom: spacing.md },
+  balanceCard: { marginBottom: spacing.sm },
   balanceLabel: { color: colors.textMuted, fontSize: typography.small },
   balanceValue: { marginTop: 4, fontSize: 26, fontWeight: "700" },
   balanceSub: {
@@ -595,45 +789,8 @@ const styles = StyleSheet.create({
   },
   credit: { color: colors.accent },
   debit: { color: colors.danger },
-  inputRow: { flexDirection: "row", gap: 8, marginBottom: spacing.sm },
-  input: {
-    backgroundColor: colors.inputBackground,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: radius.md,
-    color: colors.text,
-    minWidth: 100,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
   buttonRow: { flexDirection: "row", gap: 10, marginBottom: spacing.md },
   smallButton: { flex: 1 },
-  filterRow: {
-    flexDirection: "row",
-    gap: 6,
-    marginBottom: spacing.md,
-  },
-  filterButton: {
-    flex: 1,
-    paddingVertical: 8,
-    backgroundColor: colors.inputBackground,
-    borderRadius: 8,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  filterText: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  filterTextActive: {
-    color: "white",
-  },
   sectionTitle: {
     color: colors.text,
     fontSize: typography.subheading,
@@ -650,6 +807,11 @@ const styles = StyleSheet.create({
   txnNote: { color: colors.text, fontSize: typography.body, fontWeight: "600" },
   txnDate: {
     color: colors.textMuted,
+    fontSize: typography.small,
+    marginTop: 2,
+  },
+  txnBalance: {
+    color: colors.accent,
     fontSize: typography.small,
     marginTop: 2,
   },
@@ -697,8 +859,9 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     marginTop: 12,
     gap: 10,
+    flexWrap: "wrap",
   },
-  modalButton: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
+  modalButton: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10 },
   cancelButton: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -707,4 +870,23 @@ const styles = StyleSheet.create({
   saveButton: { backgroundColor: colors.primary },
   cancelText: { color: colors.textMuted, fontSize: 15 },
   saveText: { color: "white", fontSize: 15, fontWeight: "600" },
+  dueRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  dueDateText: {
+    marginTop: 4,
+    fontSize: 16,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  dueSetText: {
+    color: colors.accent,
+    fontWeight: "600",
+  },
+  dueClearText: {
+    color: colors.danger,
+    fontWeight: "600",
+  },
 });

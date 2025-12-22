@@ -16,6 +16,7 @@ import PrimaryButton from "../components/PrimaryButton";
 import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
 import { useBusiness } from "../context/BusinessContext";
+import { Business, getBusinessesByUser } from "../database/businessRepo"; // ✅ ADD THIS
 import {
   addCustomer,
   Customer,
@@ -26,7 +27,6 @@ import {
   getSuppliersByUser,
   Supplier,
 } from "../database/supplierRepo";
-import { Business, getBusinessesByUser } from "../database/businessRepo"; // ✅ ADD THIS
 import { appEvents } from "../utils/events";
 
 type SortOption = "date" | "name" | "amount";
@@ -308,6 +308,56 @@ export default function HomeScreen() {
     const isCustomer = activeTab === "customers";
     const isDue = item.balance > 0;
 
+    const todayStr = new Date().toLocaleDateString("en-IN");
+    const dueDate = isCustomer ? (item as Customer).due_date || null : null;
+    const createdAt = (item as Customer).created_at as string | undefined;
+
+    let createdDateStr: string | null = null;
+    if (createdAt) {
+      const created = new Date(createdAt);
+      if (!Number.isNaN(created.getTime())) {
+        createdDateStr = created.toLocaleDateString("en-IN");
+      }
+    }
+
+    type SubtitleKind = "due" | "last" | "noneToday" | "none";
+    let kind: SubtitleKind;
+    let value: string | null = null;
+
+    if (isCustomer && dueDate) {
+      kind = "due";
+      value = dueDate;
+    } else if (item.last_activity) {
+      kind = "last";
+      value = item.last_activity === todayStr ? "Today" : item.last_activity;
+    } else if (createdDateStr === todayStr) {
+      kind = "noneToday";
+    } else {
+      kind = "none";
+    }
+
+    const renderSubtitle = () => {
+      switch (kind) {
+        case "due":
+          return <Text style={styles.itemSubtitleDue}>Due on: {value}</Text>;
+        case "last":
+          return (
+            <Text style={styles.itemSubtitleLast}>
+              Last transaction on: {value}
+            </Text>
+          );
+        case "noneToday":
+          return (
+            <Text style={styles.itemSubtitleNone}>
+              No activity (created today)
+            </Text>
+          );
+        case "none":
+        default:
+          return <Text style={styles.itemSubtitleNone}>No activity</Text>;
+      }
+    };
+
     return (
       <TouchableOpacity
         style={styles.itemRow}
@@ -316,9 +366,7 @@ export default function HomeScreen() {
       >
         <View style={styles.itemInfo}>
           <Text style={styles.itemName}>{item.name}</Text>
-          <Text style={styles.itemSubtitle}>
-            {item.phone || item.last_activity || "No activity"}
-          </Text>
+          {renderSubtitle()}
         </View>
         <View style={styles.balanceContainer}>
           <Text
@@ -329,8 +377,8 @@ export default function HomeScreen() {
                   ? styles.due
                   : styles.advance
                 : isDue
-                  ? styles.payable
-                  : styles.receivable,
+                ? styles.payable
+                : styles.receivable,
             ]}
           >
             ₹ {Math.abs(item.balance).toLocaleString("en-IN")}
@@ -341,8 +389,8 @@ export default function HomeScreen() {
                 ? "You will get"
                 : "You will give"
               : isDue
-                ? "You will pay"
-                : "You will get"}
+              ? "You will pay"
+              : "You will get"}
           </Text>
         </View>
       </TouchableOpacity>
@@ -359,7 +407,12 @@ export default function HomeScreen() {
         onPress={() => handleBusinessSwitch(item)}
         activeOpacity={0.7}
       >
-        <View style={[styles.businessItemIcon, isActive && styles.businessItemIconActive]}>
+        <View
+          style={[
+            styles.businessItemIcon,
+            isActive && styles.businessItemIconActive,
+          ]}
+        >
           <Ionicons
             name="briefcase"
             size={20}
@@ -367,7 +420,12 @@ export default function HomeScreen() {
           />
         </View>
         <View style={styles.businessItemInfo}>
-          <Text style={[styles.businessItemName, isActive && styles.businessItemNameActive]}>
+          <Text
+            style={[
+              styles.businessItemName,
+              isActive && styles.businessItemNameActive,
+            ]}
+          >
             {item.name}
           </Text>
           {item.phone && (
@@ -407,14 +465,18 @@ export default function HomeScreen() {
                 >
                   {currentBusiness?.name || "Select Business"}
                 </Text>
-                <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+                <Ionicons
+                  name="chevron-down"
+                  size={16}
+                  color={colors.textMuted}
+                />
               </View>
             </View>
           </View>
 
           <TouchableOpacity
             style={styles.profileIcon}
-            onPress={() => router.push('/settings')}
+            onPress={() => router.push("/settings")}
             activeOpacity={0.7}
           >
             <Ionicons name="person-circle" size={40} color={colors.accent} />
@@ -578,8 +640,9 @@ export default function HomeScreen() {
                 <Text style={styles.emptyText}>
                   {searchQuery
                     ? `No ${activeTab} found for your search.`
-                    : `No ${activeTab} yet. Tap "+ Add ${activeTab === "customers" ? "customer" : "supplier"
-                    }" to create one.`}
+                    : `No ${activeTab} yet. Tap "+ Add ${
+                        activeTab === "customers" ? "customer" : "supplier"
+                      }" to create one.`}
                 </Text>
               </View>
             ) : null
@@ -597,7 +660,9 @@ export default function HomeScreen() {
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Switch Business</Text>
-                <TouchableOpacity onPress={() => setBusinessSwitcherVisible(false)}>
+                <TouchableOpacity
+                  onPress={() => setBusinessSwitcherVisible(false)}
+                >
                   <Ionicons name="close" size={24} color={colors.text} />
                 </TouchableOpacity>
               </View>
@@ -606,7 +671,9 @@ export default function HomeScreen() {
                 data={businesses}
                 keyExtractor={(item) => item.id.toString()}
                 renderItem={renderBusinessItem}
-                ItemSeparatorComponent={() => <View style={styles.businessSeparator} />}
+                ItemSeparatorComponent={() => (
+                  <View style={styles.businessSeparator} />
+                )}
                 ListEmptyComponent={
                   <View style={styles.emptyContainer}>
                     <Text style={styles.emptyText}>No businesses found</Text>
@@ -714,15 +781,15 @@ const styles = StyleSheet.create({
   },
   // ✅ UPDATED: Header styles
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingTop: 12,
     paddingBottom: 20,
   },
   headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     flex: 1,
     gap: 12,
   },
@@ -731,8 +798,8 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 12,
     backgroundColor: colors.inputBackground,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -742,18 +809,18 @@ const styles = StyleSheet.create({
   businessLabel: {
     color: colors.textMuted,
     fontSize: 11,
-    fontWeight: '500',
+    fontWeight: "500",
     marginBottom: 2,
   },
   businessNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
   },
   businessName: {
     color: colors.text,
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: "700",
     flex: 1,
   },
   profileIcon: {
@@ -925,12 +992,12 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: colors.border,
-    maxHeight: '70%',
+    maxHeight: "70%",
   },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 16,
   },
   modalTitle: {
@@ -976,15 +1043,15 @@ const styles = StyleSheet.create({
     maxHeight: 400,
   },
   businessItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     padding: 16,
     backgroundColor: colors.inputBackground,
     borderRadius: 12,
     gap: 12,
   },
   businessItemActive: {
-    backgroundColor: colors.primary + '15',
+    backgroundColor: colors.primary + "15",
     borderWidth: 1,
     borderColor: colors.accent,
   },
@@ -993,8 +1060,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 12,
     backgroundColor: colors.card,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -1008,11 +1075,11 @@ const styles = StyleSheet.create({
   businessItemName: {
     color: colors.text,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   businessItemNameActive: {
     color: colors.accent,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   businessItemPhone: {
     color: colors.textMuted,
@@ -1021,5 +1088,23 @@ const styles = StyleSheet.create({
   },
   businessSeparator: {
     height: 12,
+  },
+  itemSubtitleDue: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#FF4D4F", // red
+  },
+  itemSubtitleLast: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#5AC8FA", // blue
+  },
+  itemSubtitleNone: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#F39C12", // amber
   },
 });
