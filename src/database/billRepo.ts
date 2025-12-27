@@ -186,16 +186,18 @@ export async function createBillWithTransaction(options: {
   return billId;
 }
 
-export async function getNextBillNumber(businessId: number): Promise<string> {
+// ✅ NEW - Counts bills per customer
+export async function getNextBillNumber(
+  businessId: number,
+  customerId: number
+): Promise<string> {
   const result = await db.getFirstAsync<{ count: number }>(
-    `SELECT COUNT(*) as count FROM bills WHERE business_id = ?`,
-    [businessId]
+    `SELECT COUNT(*) as count FROM bills WHERE business_id = ? AND customer_id = ?`,
+    [businessId, customerId]
   );
-
   const count = result?.count || 0;
   const nextNumber = count + 1;
-
-  return `BILL-${nextNumber}`;
+  return `${customerId}-BILL-${nextNumber}`;
 }
 
 export async function getBillsForCustomer(

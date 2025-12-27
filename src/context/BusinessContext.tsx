@@ -48,22 +48,50 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       console.log("🔄 BusinessContext: Loading businesses for user:", user.id);
       const list = await getBusinessesByUser(user.id);
-      console.log("✅ BusinessContext: Loaded", list.length, "businesses");
-      setBusinesses(list);
 
-      if (list.length > 0) {
-        const defaultBiz = list.find((b) => b.is_default === 1) || list[0];
+      // ✅ ADD: Deduplicate businesses by firestore_id or id
+      const uniqueBusinesses = list.reduce((acc, business) => {
+        const key = business.firestore_id || `local-${business.id}`;
+        // Only keep the business if we haven't seen this key before
+        if (!acc.has(key)) {
+          acc.set(key, business);
+        } else {
+          // If duplicate found, keep the one with firestore_id (synced version)
+          const existing = acc.get(key);
+          if (business.firestore_id && !existing?.firestore_id) {
+            acc.set(key, business);
+          }
+        }
+        return acc;
+      }, new Map<string, Business>());
 
-        // ✅ FIX: Use ref to check current business
+      const deduplicatedList = Array.from(uniqueBusinesses.values());
+
+      if (deduplicatedList.length !== list.length) {
+        console.log(
+          `⚠️ Duplicates found! ${list.length} → ${deduplicatedList.length} businesses`
+        );
+      }
+
+      console.log(
+        "✅ BusinessContext: Loaded",
+        deduplicatedList.length,
+        "businesses"
+      );
+      setBusinesses(deduplicatedList);
+
+      if (deduplicatedList.length > 0) {
+        const defaultBiz =
+          deduplicatedList.find((b) => b.is_default === 1) ||
+          deduplicatedList[0];
+
         if (currentBusinessIdRef.current) {
-          // Update current business data if it changed
-          const updatedCurrent = list.find(
+          const updatedCurrent = deduplicatedList.find(
             (b) => b.id === currentBusinessIdRef.current
           );
           if (updatedCurrent) {
             setCurrentBusinessState(updatedCurrent);
           } else {
-            // Current business was deleted
             console.log(
               "⚠️ BusinessContext: Current business not found, switching to:",
               defaultBiz.name
@@ -89,7 +117,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({
     } finally {
       setLoading(false);
     }
-  }, [user?.id]); // ✅ REMOVED currentBusiness dependency
+  }, [user?.id]);
 
   const setCurrentBusiness = useCallback((business: Business) => {
     console.log("🔄 BusinessContext: Switching to business:", business.name);

@@ -21,12 +21,11 @@ import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
 import { useBusiness } from "../context/BusinessContext";
 import {
-  addBusiness,
   Business,
   deleteBusiness,
   setDefaultBusiness,
-  updateBusinessFull,
 } from "../database/businessRepo";
+import db from "../database/db";
 import { updateUserProfile } from "../database/userRepo";
 import { appEvents } from "../utils/events";
 
@@ -150,31 +149,45 @@ export default function SettingsScreen() {
     }
 
     try {
-      const newBusinessId = await addBusiness(
-        user.id,
-        businessName.trim(),
-        businessDescription.trim(),
-        businessPhone.trim(),
-        businessAddress.trim()
+      console.log("🔄 Creating business:", businessName.trim());
+
+      // ✅ FIXED: Added updated_at column
+      const result = await db.runAsync(
+        `INSERT INTO businesses (
+        user_id, name, description, phone, address, 
+        business_type, category, gst_number, pan_number, 
+        website_url, upi_id, bank_account_number, bank_ifsc, 
+        bank_name, logo_uri, is_default, sync_status, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          user.id,
+          businessName.trim(),
+          businessDescription.trim() || null,
+          businessPhone.trim() || null,
+          businessAddress.trim() || null,
+          businessType.trim() || null,
+          category.trim() || null,
+          gstNumber.trim() || null,
+          panNumber.trim() || null,
+          websiteUrl.trim() || null,
+          upiId.trim() || null,
+          bankAccountNumber.trim() || null,
+          bankIfsc.trim() || null,
+          bankName.trim() || null,
+          logoUri || null,
+          0, // is_default
+          "pending", // sync_status
+          new Date().toISOString(), // ✅ ADDED: updated_at
+        ]
       );
 
-      // Update with enhanced fields
-      await updateBusinessFull(newBusinessId, {
-        name: businessName.trim(),
-        description: businessDescription.trim(),
-        phone: businessPhone.trim(),
-        address: businessAddress.trim(),
-        business_type: businessType.trim(),
-        category: category.trim(),
-        gst_number: gstNumber.trim(),
-        pan_number: panNumber.trim(),
-        website_url: websiteUrl.trim(),
-        upi_id: upiId.trim(),
-        bank_account_number: bankAccountNumber.trim(),
-        bank_ifsc: bankIfsc.trim(),
-        bank_name: bankName.trim(),
-        logo_uri: logoUri || undefined,
-      });
+      const businessId = result.lastInsertRowId;
+      console.log("✅ Business created with ID:", businessId);
+
+      // ✅ Queue for sync AFTER all data is saved
+      const { markAsPendingSync } = await import("../database/db");
+      await markAsPendingSync("businesses", businessId);
+      console.log("✅ Business queued for sync");
 
       await refreshBusinesses();
       appEvents.emit("businessUpdated");
@@ -182,8 +195,8 @@ export default function SettingsScreen() {
       clearBusinessForm();
       Alert.alert("Success", "Business has been added");
     } catch (error) {
+      console.error("❌ Error adding business:", error);
       Alert.alert("Error", "Failed to add business");
-      console.error(error);
     }
   };
 
@@ -220,22 +233,43 @@ export default function SettingsScreen() {
     }
 
     try {
-      await updateBusinessFull(selectedBusiness.id, {
-        name: businessName.trim(),
-        description: businessDescription.trim(),
-        phone: businessPhone.trim(),
-        address: businessAddress.trim(),
-        business_type: businessType.trim(),
-        category: category.trim(),
-        gst_number: gstNumber.trim(),
-        pan_number: panNumber.trim(),
-        website_url: websiteUrl.trim(),
-        upi_id: upiId.trim(),
-        bank_account_number: bankAccountNumber.trim(),
-        bank_ifsc: bankIfsc.trim(),
-        bank_name: bankName.trim(),
-        logo_uri: logoUri || undefined, // ✅ FIXED
-      });
+      console.log("🔄 Updating business:", selectedBusiness.id);
+
+      // ✅ Update ALL fields in ONE operation
+      await db.runAsync(
+        `UPDATE businesses SET 
+        name = ?, description = ?, phone = ?, address = ?,
+        business_type = ?, category = ?, gst_number = ?, pan_number = ?,
+        website_url = ?, upi_id = ?, bank_account_number = ?, bank_ifsc = ?,
+        bank_name = ?, logo_uri = ?, sync_status = ?, updated_at = ?
+      WHERE id = ?`,
+        [
+          businessName.trim(),
+          businessDescription.trim() || null,
+          businessPhone.trim() || null,
+          businessAddress.trim() || null,
+          businessType.trim() || null,
+          category.trim() || null,
+          gstNumber.trim() || null,
+          panNumber.trim() || null,
+          websiteUrl.trim() || null,
+          upiId.trim() || null,
+          bankAccountNumber.trim() || null,
+          bankIfsc.trim() || null,
+          bankName.trim() || null,
+          logoUri || null,
+          "pending",
+          new Date().toISOString(),
+          selectedBusiness.id,
+        ]
+      );
+
+      console.log("✅ Business updated");
+
+      // ✅ Queue for sync
+      const { markAsPendingSync } = await import("../database/db");
+      await markAsPendingSync("businesses", selectedBusiness.id);
+      console.log("✅ Business queued for sync");
 
       await refreshBusinesses();
       appEvents.emit("businessUpdated");
@@ -243,8 +277,8 @@ export default function SettingsScreen() {
       clearBusinessForm();
       Alert.alert("Success", "Business has been updated");
     } catch (err) {
+      console.error("❌ Error updating business:", err);
       Alert.alert("Error", "Failed to update business");
-      console.error(err);
     }
   };
 
