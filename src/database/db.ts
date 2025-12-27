@@ -26,27 +26,40 @@ export const initDB = async () => {
         description TEXT,
         phone TEXT,
         address TEXT,
+        business_type TEXT,
+        category TEXT,
+        gst_number TEXT,
+        pan_number TEXT,
+        website_url TEXT,
+        upi_id TEXT,
+        bank_account_number TEXT,
+        bank_ifsc TEXT,
+        bank_name TEXT,
+        logo_uri TEXT,
         is_default INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
       );
 
-        -- Customers table
-        CREATE TABLE IF NOT EXISTS customers (
+      -- Customers table
+      CREATE TABLE IF NOT EXISTS customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
         business_id INTEGER,
         name TEXT NOT NULL,
         phone TEXT,
+        email TEXT,
+        address TEXT,
+        photo_uri TEXT,
         balance REAL DEFAULT 0,
         last_activity TEXT,
         archived INTEGER DEFAULT 0,
         due_date TEXT,
+        sms_enabled INTEGER DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
         FOREIGN KEY (business_id) REFERENCES businesses (id) ON DELETE CASCADE
       );
-
 
       -- Suppliers table
       CREATE TABLE IF NOT EXISTS suppliers (
@@ -148,7 +161,6 @@ export const initDB = async () => {
       CREATE INDEX IF NOT EXISTS idx_bills_customer ON bills(customer_id);
       CREATE INDEX IF NOT EXISTS idx_bill_items_bill ON bill_items(bill_id);
 
-
       -- Create indexes for better performance
       CREATE INDEX IF NOT EXISTS idx_businesses_user ON businesses(user_id);
       CREATE INDEX IF NOT EXISTS idx_customers_user ON customers(user_id);
@@ -168,7 +180,9 @@ export const initDB = async () => {
     await migrateRenamePasswordColumn();
     await migrateAddArchivedColumn();
     await migrateAddBusinessSupport();
-    await migrateAddCustomerDueDate(); // 👈 new migration
+    await migrateAddCustomerDueDate();
+    await migrateAddEnhancedBusinessFields();
+    await migrateAddEnhancedCustomerFields();
 
     console.log("✅ Database initialized successfully");
   } catch (error) {
@@ -179,7 +193,6 @@ export const initDB = async () => {
 
 /**
  * Migration 1: Rename password column to password_hash
- * This ensures password hashing is properly enforced
  */
 const migrateRenamePasswordColumn = async () => {
   try {
@@ -194,9 +207,7 @@ const migrateRenamePasswordColumn = async () => {
 
       if (passwordExists && passwordExists.count > 0) {
         console.log("🔄 Migration: Renaming password to password_hash...");
-
         await db.execAsync(`
-          -- Create new table with correct schema
           CREATE TABLE users_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -207,15 +218,12 @@ const migrateRenamePasswordColumn = async () => {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
           );
 
-          -- Copy existing data
           INSERT INTO users_new (id, name, email, password_hash, phone, shop_name, created_at)
           SELECT id, name, email, password, phone, shop_name, created_at FROM users;
 
-          -- Drop old table and rename new one
           DROP TABLE users;
           ALTER TABLE users_new RENAME TO users;
         `);
-
         console.log("✅ Migration: password_hash column created");
       }
     } else {
@@ -227,36 +235,33 @@ const migrateRenamePasswordColumn = async () => {
 };
 
 /**
- * Migration 2: Add archived column to customers and suppliers
- * Enables soft delete functionality
+ * Migration 2: Add archived column
  */
 const migrateAddArchivedColumn = async () => {
   try {
-    // Check customers table
     const customerResult = await db.getFirstAsync<{ count: number }>(
       `SELECT COUNT(*) as count FROM pragma_table_info('customers') WHERE name='archived'`
     );
 
     if (customerResult && customerResult.count === 0) {
       console.log("🔄 Migration: Adding archived column to customers...");
-      await db.execAsync(`
-        ALTER TABLE customers ADD COLUMN archived INTEGER DEFAULT 0;
-      `);
+      await db.execAsync(
+        `ALTER TABLE customers ADD COLUMN archived INTEGER DEFAULT 0;`
+      );
       console.log("✅ Migration: archived column added to customers");
     } else {
       console.log("✓ Migration: customers.archived already exists");
     }
 
-    // Check suppliers table
     const supplierResult = await db.getFirstAsync<{ count: number }>(
       `SELECT COUNT(*) as count FROM pragma_table_info('suppliers') WHERE name='archived'`
     );
 
     if (supplierResult && supplierResult.count === 0) {
       console.log("🔄 Migration: Adding archived column to suppliers...");
-      await db.execAsync(`
-        ALTER TABLE suppliers ADD COLUMN archived INTEGER DEFAULT 0;
-      `);
+      await db.execAsync(
+        `ALTER TABLE suppliers ADD COLUMN archived INTEGER DEFAULT 0;`
+      );
       console.log("✅ Migration: archived column added to suppliers");
     } else {
       console.log("✓ Migration: suppliers.archived already exists");
@@ -268,11 +273,9 @@ const migrateAddArchivedColumn = async () => {
 
 /**
  * Migration 3: Add multi-business support
- * Adds business_id to all relevant tables and creates default businesses
  */
 const migrateAddBusinessSupport = async () => {
   try {
-    // Check if business_id already exists in customers table
     const result = await db.getFirstAsync<{ count: number }>(
       `SELECT COUNT(*) as count FROM pragma_table_info('customers') WHERE name='business_id'`
     );
@@ -280,28 +283,26 @@ const migrateAddBusinessSupport = async () => {
     if (result && result.count === 0) {
       console.log("🔄 Migration: Adding multi-business support...");
 
-      // Add business_id columns to all tables
-      await db.execAsync(`
-        ALTER TABLE customers ADD COLUMN business_id INTEGER;
-      `);
+      await db.execAsync(
+        `ALTER TABLE customers ADD COLUMN business_id INTEGER;`
+      );
       console.log("✅ Migration: business_id added to customers");
 
-      await db.execAsync(`
-        ALTER TABLE suppliers ADD COLUMN business_id INTEGER;
-      `);
+      await db.execAsync(
+        `ALTER TABLE suppliers ADD COLUMN business_id INTEGER;`
+      );
       console.log("✅ Migration: business_id added to suppliers");
 
-      await db.execAsync(`
-        ALTER TABLE transactions ADD COLUMN business_id INTEGER;
-      `);
+      await db.execAsync(
+        `ALTER TABLE transactions ADD COLUMN business_id INTEGER;`
+      );
       console.log("✅ Migration: business_id added to transactions");
 
-      await db.execAsync(`
-        ALTER TABLE supplier_transactions ADD COLUMN business_id INTEGER;
-      `);
+      await db.execAsync(
+        `ALTER TABLE supplier_transactions ADD COLUMN business_id INTEGER;`
+      );
       console.log("✅ Migration: business_id added to supplier_transactions");
 
-      // Create indexes for better query performance
       await db.execAsync(`
         CREATE INDEX IF NOT EXISTS idx_customers_business ON customers(business_id);
         CREATE INDEX IF NOT EXISTS idx_suppliers_business ON suppliers(business_id);
@@ -310,18 +311,15 @@ const migrateAddBusinessSupport = async () => {
       `);
       console.log("✅ Migration: business_id indexes created");
 
-      // Get all existing users
       const users = await db.getAllAsync<{
         id: number;
         name: string;
         shop_name: string | null;
       }>(`SELECT id, name, shop_name FROM users`);
 
-      // Create default business for each user and migrate their data
       for (const user of users) {
         const businessName = user.shop_name || `${user.name}'s Business`;
 
-        // Create default business
         const insertResult = await db.runAsync(
           `INSERT INTO businesses (user_id, name, description, is_default) VALUES (?, ?, ?, 1)`,
           [user.id, businessName, "Default business account"]
@@ -329,7 +327,6 @@ const migrateAddBusinessSupport = async () => {
 
         const businessId = insertResult.lastInsertRowId;
 
-        // Migrate all existing data to the new default business
         await db.runAsync(
           `UPDATE customers SET business_id = ? WHERE user_id = ? AND business_id IS NULL`,
           [businessId, user.id]
@@ -351,13 +348,11 @@ const migrateAddBusinessSupport = async () => {
         );
 
         console.log(
-          `✅ Migration: Created default business for user ${user.id} (${user.name})`
+          `✅ Migration: Created default business for user ${user.id}`
         );
       }
 
-      console.log(
-        "✅ Migration: Multi-business support completed successfully"
-      );
+      console.log("✅ Migration: Multi-business support completed");
     } else {
       console.log("✓ Migration: Multi-business support already exists");
     }
@@ -369,7 +364,6 @@ const migrateAddBusinessSupport = async () => {
 
 /**
  * Migration 4: Add due_date column to customers
- * Stores customer-wise due date for reminders
  */
 const migrateAddCustomerDueDate = async () => {
   try {
@@ -379,9 +373,7 @@ const migrateAddCustomerDueDate = async () => {
 
     if (result && result.count === 0) {
       console.log("🔄 Migration: Adding due_date column to customers...");
-      await db.execAsync(`
-        ALTER TABLE customers ADD COLUMN due_date TEXT;
-      `);
+      await db.execAsync(`ALTER TABLE customers ADD COLUMN due_date TEXT;`);
       console.log("✅ Migration: due_date column added to customers");
     } else {
       console.log("✓ Migration: customers.due_date already exists");
@@ -392,13 +384,79 @@ const migrateAddCustomerDueDate = async () => {
 };
 
 /**
- * Utility function to reset database (for development only)
- * WARNING: This will delete all data!
+ * Migration 5: Add enhanced business fields
+ */
+const migrateAddEnhancedBusinessFields = async () => {
+  try {
+    const fields = [
+      "business_type",
+      "category",
+      "gst_number",
+      "pan_number",
+      "website_url",
+      "upi_id",
+      "bank_account_number",
+      "bank_ifsc",
+      "bank_name",
+      "logo_uri",
+    ];
+
+    for (const field of fields) {
+      const result = await db.getFirstAsync<{ count: number }>(
+        `SELECT COUNT(*) as count FROM pragma_table_info('businesses') WHERE name='${field}'`
+      );
+
+      if (result && result.count === 0) {
+        console.log(`🔄 Migration: Adding ${field} to businesses...`);
+        await db.execAsync(`ALTER TABLE businesses ADD COLUMN ${field} TEXT;`);
+        console.log(`✅ Migration: ${field} added to businesses`);
+      }
+    }
+
+    console.log("✅ Migration: Enhanced business fields completed");
+  } catch (error) {
+    console.error("❌ Migration error (enhanced business fields):", error);
+  }
+};
+
+/**
+ * Migration 6: Add enhanced customer fields
+ */
+const migrateAddEnhancedCustomerFields = async () => {
+  try {
+    const fields = [
+      { name: "email", type: "TEXT" },
+      { name: "address", type: "TEXT" },
+      { name: "photo_uri", type: "TEXT" },
+      { name: "sms_enabled", type: "INTEGER DEFAULT 1" },
+    ];
+
+    for (const field of fields) {
+      const result = await db.getFirstAsync<{ count: number }>(
+        `SELECT COUNT(*) as count FROM pragma_table_info('customers') WHERE name='${field.name}'`
+      );
+
+      if (result && result.count === 0) {
+        console.log(`🔄 Migration: Adding ${field.name} to customers...`);
+        await db.execAsync(
+          `ALTER TABLE customers ADD COLUMN ${field.name} ${field.type};`
+        );
+        console.log(`✅ Migration: ${field.name} added to customers`);
+      }
+    }
+
+    console.log("✅ Migration: Enhanced customer fields completed");
+  } catch (error) {
+    console.error("❌ Migration error (enhanced customer fields):", error);
+  }
+};
+
+/**
+ * Utility: Reset database (development only)
  */
 export const resetDatabase = async () => {
   try {
     console.log("⚠️ Resetting database...");
-
     await db.execAsync(`
       DROP TABLE IF EXISTS supplier_transactions;
       DROP TABLE IF EXISTS transactions;
@@ -408,10 +466,7 @@ export const resetDatabase = async () => {
       DROP TABLE IF EXISTS businesses;
       DROP TABLE IF EXISTS users;
     `);
-
     console.log("✅ Database reset complete");
-
-    // Reinitialize
     await initDB();
   } catch (error) {
     console.error("❌ Database reset error:", error);
@@ -420,7 +475,7 @@ export const resetDatabase = async () => {
 };
 
 /**
- * Get database statistics (for debugging)
+ * Get database statistics
  */
 export const getDatabaseStats = async () => {
   try {

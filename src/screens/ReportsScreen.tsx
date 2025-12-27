@@ -24,13 +24,12 @@ export default function ReportsScreen() {
   const [loading, setLoading] = useState(true);
   const [activePeriod, setActivePeriod] = useState<PeriodTab>("month");
 
-  // ✅ Add reload trigger state
-  const [reloadTrigger, setReloadTrigger] = useState(0);
-
   // ✅ Wrap loadReports in useCallback with proper dependencies
   const loadReports = useCallback(async () => {
     console.log("🔄 ReportsScreen loadReports called");
     console.log(
+      "User ID:",
+      user?.id,
       "Current Business:",
       currentBusiness?.name,
       "ID:",
@@ -39,46 +38,49 @@ export default function ReportsScreen() {
 
     if (!user || !currentBusiness) {
       console.log("⚠️ Missing user or business");
+      setReports(null);
+      setLoading(false);
       return;
     }
-
-    // Clear existing reports
-    setReports(null);
 
     setLoading(true);
     try {
       const data = await getReportsForUser(user.id, currentBusiness.id);
-      console.log("✅ Reports loaded for business:", currentBusiness.id);
+      console.log("✅ Reports loaded for business:", currentBusiness.id, data);
       setReports(data);
     } catch (error) {
-      console.error("Failed to load reports:", error);
+      console.error("❌ Failed to load reports:", error);
+      setReports(null);
     } finally {
       setLoading(false);
     }
-  }, [user?.id, currentBusiness?.id]);
+  }, [user, currentBusiness]); // ✅ Fixed: Use full objects, not optional chaining
 
-  // ✅ Load reports when dependencies change OR reloadTrigger changes
+  // ✅ Load reports when dependencies change
   useEffect(() => {
+    console.log("📊 Reports useEffect triggered");
     loadReports();
-  }, [loadReports, reloadTrigger]);
+  }, [loadReports]);
 
-  // ✅ Event handlers trigger state change instead of calling loadReports directly
+  // ✅ Event handlers to reload data
   useEffect(() => {
     const handler = () => {
-      console.log("📣 Reports: Event received, triggering reload");
-      setReloadTrigger((prev) => prev + 1);
+      console.log("📣 Reports: Event received, reloading data");
+      loadReports();
     };
 
     appEvents.on("customerUpdated", handler);
     appEvents.on("supplierUpdated", handler);
-    appEvents.on("businessSwitched", handler);
+    appEvents.on("businessUpdated", handler); // ✅ Changed from businessSwitched
+    // appEvents.on("transactionAdded", handler); // ✅ Added if you emit this
 
     return () => {
       appEvents.off("customerUpdated", handler);
       appEvents.off("supplierUpdated", handler);
-      appEvents.off("businessSwitched", handler);
+      appEvents.off("businessUpdated", handler);
+      // appEvents.off("transactionAdded", handler);
     };
-  }, []); // ✅ Empty dependencies - handler never changes
+  }, [loadReports]); // ✅ Added loadReports dependency
 
   if (loading) {
     return (
@@ -95,7 +97,10 @@ export default function ReportsScreen() {
     return (
       <Screen>
         <View style={styles.loadingContainer}>
-          <Text style={styles.errorText}>Failed to load reports.</Text>
+          <Text style={styles.errorText}>No data available.</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={loadReports}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       </Screen>
     );
@@ -111,6 +116,9 @@ export default function ReportsScreen() {
           <Text style={styles.subtitle}>
             Financial summary of your business
           </Text>
+          {currentBusiness && (
+            <Text style={styles.businessName}>{currentBusiness.name}</Text>
+          )}
         </View>
 
         {/* Period Tabs */}
@@ -320,6 +328,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    padding: spacing.lg,
   },
   loadingText: {
     color: colors.textMuted,
@@ -329,6 +338,20 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.danger,
     fontSize: typography.body,
+    marginBottom: spacing.md,
+    textAlign: "center",
+  },
+  retryButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: spacing.md,
+  },
+  retryText: {
+    color: "white",
+    fontSize: 15,
+    fontWeight: "600",
   },
   header: {
     paddingTop: 12,
@@ -342,6 +365,12 @@ const styles = StyleSheet.create({
   subtitle: {
     color: colors.textMuted,
     fontSize: 13,
+    marginTop: 4,
+  },
+  businessName: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: "600",
     marginTop: 4,
   },
   tabRow: {

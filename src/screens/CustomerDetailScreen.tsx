@@ -1,12 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   BackHandler,
   FlatList,
+  Image,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -15,7 +18,6 @@ import {
 } from "react-native";
 import { colors, spacing, typography } from "../../constants/theme";
 import Card from "../components/Card";
-import PrimaryButton from "../components/PrimaryButton";
 import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
 import { useBusiness } from "../context/BusinessContext";
@@ -24,8 +26,8 @@ import {
   archiveCustomer,
   deleteCustomer,
   unarchiveCustomer,
-  updateCustomer,
   updateCustomerDueDate,
+  updateCustomerFull,
 } from "../database/customerRepo";
 import {
   Transaction,
@@ -40,10 +42,14 @@ interface CustomerParam {
   business_id: number | null;
   name: string;
   phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  photo_uri?: string | null;
   balance: number;
   last_activity?: string | null;
   archived?: number;
   due_date?: string | null;
+  sms_enabled?: number;
 }
 
 export default function CustomerDetailScreen() {
@@ -62,44 +68,56 @@ export default function CustomerDetailScreen() {
         phone: null,
         balance: 0,
         archived: 0,
+        sms_enabled: 1,
       };
 
   const [customerData, setCustomerData] = useState<Customer>(
     customer as Customer
   );
-
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+
+  // View Profile Modal
+  const [viewProfileVisible, setViewProfileVisible] = useState(false);
 
   // Edit customer modal
   const [editCustomerVisible, setEditCustomerVisible] = useState(false);
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [editPhotoUri, setEditPhotoUri] = useState<string | null>(null);
+  const [editSmsEnabled, setEditSmsEnabled] = useState(true);
 
   // You Gave modal
   const [showGivenModal, setShowGivenModal] = useState(false);
   const [givenAmount, setGivenAmount] = useState("");
   const [givenNote, setGivenNote] = useState("");
-  const [givenDate, setGivenDate] = useState<Date>(new Date());
+  const [givenDate, setGivenDate] = useState(new Date());
 
   // You Received modal
   const [showReceivedModal, setShowReceivedModal] = useState(false);
   const [receivedAmount, setReceivedAmount] = useState("");
   const [receivedNote, setReceivedNote] = useState("");
-  const [receivedDate, setReceivedDate] = useState<Date>(new Date());
+  const [receivedDate, setReceivedDate] = useState(new Date());
 
-  // Due date UI placeholder
-  // const [showDueDateModal, setShowDueDateModal] = useState(false);
-  // const [selectedDueDate, setSelectedDueDate] = useState<Date | null>(null);
+  // Due date
+  const [showDueDateModal, setShowDueDateModal] = useState(false);
+  const [tempDueDate, setTempDueDate] = useState<Date | null>(null);
 
-  const loadTransactions = async () => {
+  const [showTxnDatePicker, setShowTxnDatePicker] = useState(false);
+  const [txnDateTarget, setTxnDateTarget] = useState<"given" | "received">(
+    "given"
+  );
+
+  const loadTransactions = useCallback(async () => {
     if (!user || !customer.id) return;
     const list = await getTransactionsForCustomer(user.id, customer.id);
     setTransactions(list ?? []);
-  };
+  }, [user, customer.id]);
 
   useEffect(() => {
     loadTransactions();
-  }, [user, customer.id]);
+  }, [user, customer.id, loadTransactions]);
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
@@ -110,7 +128,7 @@ export default function CustomerDetailScreen() {
       }
     );
     return () => backHandler.remove();
-  }, []);
+  }, [router]);
 
   const balance = useMemo(
     () =>
@@ -122,7 +140,6 @@ export default function CustomerDetailScreen() {
 
   const isDue = balance > 0;
 
-  // Build list with running remaining amount (from oldest to newest)
   const transactionsWithRunning = useMemo(() => {
     let running = 0;
     const oldestFirst = [...transactions].reverse();
@@ -146,7 +163,6 @@ export default function CustomerDetailScreen() {
           text: customerData.archived ? "Unarchive" : "Archive",
           onPress: async () => {
             if (!user || !customerData.id) return;
-
             if (customerData.archived) {
               await unarchiveCustomer(user.id, customerData.id);
               setCustomerData({ ...customerData, archived: 0 });
@@ -156,7 +172,6 @@ export default function CustomerDetailScreen() {
               setCustomerData({ ...customerData, archived: 1 });
               Alert.alert("Success", "Customer has been archived.");
             }
-
             appEvents.emit("customerUpdated");
           },
         },
@@ -164,9 +179,43 @@ export default function CustomerDetailScreen() {
     );
   };
 
+  // Image Picker for Customer Photo
+  const pickCustomerImage = async () => {
+    const permissionResult =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (permissionResult.granted === false) {
+      Alert.alert("Permission Required", "Please allow access to your photos");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      setEditPhotoUri(result.assets[0].uri);
+    }
+  };
+
+  const removeCustomerImage = () => {
+    setEditPhotoUri(null);
+  };
+
+  const handleViewProfile = () => {
+    setViewProfileVisible(true);
+  };
+
   const handleEditCustomer = () => {
     setEditName(customerData.name);
     setEditPhone(customerData.phone || "");
+    setEditEmail(customerData.email || "");
+    setEditAddress(customerData.address || "");
+    setEditPhotoUri(customerData.photo_uri || null);
+    setEditSmsEnabled(customerData.sms_enabled === 1);
     setEditCustomerVisible(true);
   };
 
@@ -177,17 +226,26 @@ export default function CustomerDetailScreen() {
       return;
     }
 
-    await updateCustomer(
-      user.id,
-      customerData.id,
-      editName.trim(),
-      editPhone.trim()
-    );
+    await updateCustomerFull(user.id, customerData.id, {
+      name: editName.trim(),
+      phone: editPhone.trim(),
+      email: editEmail.trim(),
+      address: editAddress.trim(),
+      photo_uri: editPhotoUri || undefined, // ✅ FIXED
+
+      sms_enabled: editSmsEnabled ? 1 : 0,
+    });
+
     setCustomerData({
       ...customerData,
       name: editName.trim(),
       phone: editPhone.trim(),
+      email: editEmail.trim(),
+      address: editAddress.trim(),
+      photo_uri: editPhotoUri,
+      sms_enabled: editSmsEnabled ? 1 : 0,
     });
+
     appEvents.emit("customerUpdated");
     setEditCustomerVisible(false);
     Alert.alert("Success", "Customer details updated successfully");
@@ -195,7 +253,6 @@ export default function CustomerDetailScreen() {
 
   const handleDeleteCustomer = () => {
     if (!transactions.length) {
-      // Quick path
       if (!user || !customerData.id) return;
       Alert.alert(
         "Delete Customer",
@@ -225,7 +282,6 @@ export default function CustomerDetailScreen() {
           : `You still owe ₹${absBalance.toLocaleString(
               "en-IN"
             )} to the customer`;
-
       Alert.alert("Cannot Delete", message);
       return;
     }
@@ -256,7 +312,6 @@ export default function CustomerDetailScreen() {
 
   const handleAddGivenEntryOnly = async () => {
     if (!user || !currentBusiness) return;
-
     const amt = parseFloat(givenAmount);
     if (!givenAmount.trim() || isNaN(amt) || amt <= 0) {
       Alert.alert("Validation", "Please enter a valid amount");
@@ -283,7 +338,6 @@ export default function CustomerDetailScreen() {
 
   const handleAddReceived = async () => {
     if (!user || !currentBusiness) return;
-
     const amt = parseFloat(receivedAmount);
     if (!receivedAmount.trim() || isNaN(amt) || amt <= 0) {
       Alert.alert("Validation", "Please enter a valid amount");
@@ -315,15 +369,7 @@ export default function CustomerDetailScreen() {
   }) => {
     const isCredit = item.type === "credit";
     return (
-      <Card
-        style={[
-          styles.txnCard,
-          {
-            borderLeftWidth: 3,
-            borderLeftColor: isCredit ? colors.accent : colors.danger,
-          },
-        ]}
-      >
+      <Card style={styles.txnCard}>
         <View style={styles.txnRow}>
           <View style={styles.txnInfo}>
             <Text style={styles.txnNote}>{item.note || ""}</Text>
@@ -353,30 +399,17 @@ export default function CustomerDetailScreen() {
     );
   };
 
-  // Due date UI
-  const [showDueDateModal, setShowDueDateModal] = useState(false);
-  const [tempDueDate, setTempDueDate] = useState<Date | null>(null);
-
   const handleClearDueDate = async () => {
     if (!user || !customerData.id) return;
-
     await updateCustomerDueDate(user.id, customerData.id, null);
     setCustomerData({ ...customerData, due_date: null });
     appEvents.emit("customerUpdated");
   };
 
-  const [showTxnDatePicker, setShowTxnDatePicker] = useState(false);
-  const [txnDateTarget, setTxnDateTarget] = useState<"given" | "received">(
-    "given"
-  );
-
-  // helper
   const parseEnInDate = (value: string | null | undefined): Date => {
-    if (!value) return new Date(); // fallback to today
-
+    if (!value) return new Date();
     const [day, month, year] = value.split("/").map(Number);
     if (!day || !month || !year) return new Date();
-
     return new Date(year, month - 1, day);
   };
 
@@ -392,32 +425,42 @@ export default function CustomerDetailScreen() {
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.headerText}>
-            <Text style={styles.customerName}>{customerData.name}</Text>
+            <TouchableOpacity onPress={handleViewProfile}>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+              >
+                {customerData.photo_uri && (
+                  <Image
+                    source={{ uri: customerData.photo_uri }}
+                    style={styles.customerPhotoSmall}
+                  />
+                )}
+                <Text style={styles.customerName}>{customerData.name}</Text>
+              </View>
+            </TouchableOpacity>
             <Text style={styles.customerTag}>Customer ledger</Text>
           </View>
           <TouchableOpacity
             onPress={handleEditCustomer}
             style={styles.iconButton}
           >
-            <Ionicons name="create-outline" size={22} color={colors.text} />
+            <Ionicons name="pencil" size={20} color={colors.accent} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleArchiveCustomer}
             style={styles.archiveButton}
           >
             <Ionicons
-              name={
-                customerData.archived ? "arrow-undo-outline" : "archive-outline"
-              }
-              size={22}
-              color={customerData.archived ? colors.accent : colors.text}
+              name={customerData.archived ? "archive" : "archive-outline"}
+              size={20}
+              color={colors.textMuted}
             />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleDeleteCustomer}
             style={styles.iconButton}
           >
-            <Ionicons name="trash-outline" size={22} color={colors.danger} />
+            <Ionicons name="trash-outline" size={20} color={colors.danger} />
           </TouchableOpacity>
         </View>
 
@@ -436,8 +479,8 @@ export default function CustomerDetailScreen() {
           </Text>
         </Card>
 
-        {/* Due date row (simple text for now) */}
-        <Card style={[styles.balanceCard, { marginBottom: spacing.md }]}>
+        {/* Due date row */}
+        <Card style={styles.balanceCard}>
           <View style={styles.dueRow}>
             <View>
               <Text style={styles.balanceLabel}>Due Date</Text>
@@ -445,48 +488,38 @@ export default function CustomerDetailScreen() {
                 {customerData.due_date || "No due date set"}
               </Text>
             </View>
-            {/* Hook this to a calendar modal later */}
-            {/* <TouchableOpacity onPress={() => setShowDueDateModal(true)}> */}
-            <TouchableOpacity
-              onPress={() => {
-                const initial = parseEnInDate(customerData.due_date || null);
-                setTempDueDate(initial);
-                setShowDueDateModal(true);
-              }}
-            >
-              <Text style={styles.dueSetText}>Set / Change</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleClearDueDate}>
-              <Text style={styles.dueClearText}>Clear</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  const initial = parseEnInDate(customerData.due_date || null);
+                  setTempDueDate(initial);
+                  setShowDueDateModal(true);
+                }}
+              >
+                <Text style={styles.dueSetText}>Set / Change</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleClearDueDate}>
+                <Text style={styles.dueClearText}>Clear</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </Card>
 
         {/* Action buttons */}
         <View style={styles.buttonRow}>
-          <PrimaryButton
-            label="Send"
+          <TouchableOpacity
             onPress={() => setShowGivenModal(true)}
-            style={[styles.smallButton, { backgroundColor: colors.accent }]}
-          />
-          <PrimaryButton
-            label="Received"
+            style={styles.gaveButton}
+          >
+            <Text style={styles.buttonText}>You Gave</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={() => setShowReceivedModal(true)}
-            style={[styles.smallButton, { backgroundColor: colors.danger }]}
-          />
+            style={styles.receivedButton}
+          >
+            <Text style={styles.buttonText}>You Received</Text>
+          </TouchableOpacity>
         </View>
-
-        {/* Create Bill button */}
-        {/* <PrimaryButton
-          label="Create Bill"
-          onPress={() =>
-            router.push({
-              pathname: "./create-bill",
-              params: { customerId: customerData.id.toString() },
-            })
-          }
-          style={{ marginBottom: spacing.md }}
-        /> */}
 
         {/* Transactions */}
         <Text style={styles.sectionTitle}>
@@ -503,85 +536,247 @@ export default function CustomerDetailScreen() {
           }
         />
 
-        {/* Edit Customer Modal */}
-        <Modal visible={editCustomerVisible} transparent animationType="slide">
+        {/* View Customer Profile Modal */}
+        <Modal
+          visible={viewProfileVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setViewProfileVisible(false)}
+        >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Edit Customer</Text>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.modalTitle}>Customer Profile</Text>
 
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Customer Name *"
-                placeholderTextColor={colors.textMuted}
-                value={editName}
-                onChangeText={setEditName}
-              />
-              <TextInput
-                style={styles.modalInput}
-                placeholder="Phone Number (optional)"
-                placeholderTextColor={colors.textMuted}
-                keyboardType="phone-pad"
-                value={editPhone}
-                onChangeText={setEditPhone}
-              />
+                {customerData.photo_uri && (
+                  <Image
+                    source={{ uri: customerData.photo_uri }}
+                    style={styles.customerPhotoLarge}
+                  />
+                )}
 
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.cancelButton]}
-                  onPress={() => setEditCustomerVisible(false)}
-                >
-                  <Text style={styles.cancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.saveButton]}
-                  onPress={handleSaveCustomer}
-                >
-                  <Text style={styles.saveText}>Save</Text>
-                </TouchableOpacity>
-              </View>
+                <View style={styles.profileDetailRow}>
+                  <Ionicons name="person" size={20} color={colors.accent} />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={styles.profileLabel}>Name</Text>
+                    <Text style={styles.profileValue}>{customerData.name}</Text>
+                  </View>
+                </View>
+
+                {customerData.phone && (
+                  <View style={styles.profileDetailRow}>
+                    <Ionicons name="call" size={20} color={colors.accent} />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={styles.profileLabel}>Phone</Text>
+                      <Text style={styles.profileValue}>
+                        {customerData.phone}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {customerData.email && (
+                  <View style={styles.profileDetailRow}>
+                    <Ionicons name="mail" size={20} color={colors.accent} />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={styles.profileLabel}>Email</Text>
+                      <Text style={styles.profileValue}>
+                        {customerData.email}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {customerData.address && (
+                  <View style={styles.profileDetailRow}>
+                    <Ionicons name="location" size={20} color={colors.accent} />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={styles.profileLabel}>Address</Text>
+                      <Text style={styles.profileValue}>
+                        {customerData.address}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                <View style={styles.profileDetailRow}>
+                  <Ionicons
+                    name="chatbubbles"
+                    size={20}
+                    color={colors.accent}
+                  />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={styles.profileLabel}>SMS Notifications</Text>
+                    <Text style={styles.profileValue}>
+                      {customerData.sms_enabled ? "Enabled" : "Disabled"}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.cancelButton]}
+                    onPress={() => setViewProfileVisible(false)}
+                  >
+                    <Text style={styles.cancelText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
           </View>
         </Modal>
 
-        {/* You Gave(Send) Modal */}
-        <Modal visible={showGivenModal} transparent animationType="slide">
+        {/* Edit Customer Modal */}
+        <Modal
+          visible={editCustomerVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setEditCustomerVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalContent}>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.modalTitle}>Edit Customer</Text>
+
+                {/* Photo Picker */}
+                <TouchableOpacity
+                  style={styles.imagePickerButton}
+                  onPress={pickCustomerImage}
+                >
+                  {editPhotoUri ? (
+                    <View>
+                      <Image
+                        source={{ uri: editPhotoUri }}
+                        style={styles.pickedImage}
+                      />
+                      <TouchableOpacity
+                        style={styles.removeImageButton}
+                        onPress={removeCustomerImage}
+                      >
+                        <Ionicons
+                          name="close-circle"
+                          size={24}
+                          color={colors.danger}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.imagePickerPlaceholder}>
+                      <Ionicons
+                        name="camera"
+                        size={32}
+                        color={colors.textMuted}
+                      />
+                      <Text style={styles.imagePickerText}>Add Photo</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TextInput
+                  style={styles.modalInput}
+                  value={editName}
+                  onChangeText={setEditName}
+                  placeholder="Customer Name *"
+                  placeholderTextColor={colors.textMuted}
+                />
+                <TextInput
+                  style={styles.modalInput}
+                  value={editPhone}
+                  onChangeText={setEditPhone}
+                  placeholder="Phone Number"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="phone-pad"
+                />
+                <TextInput
+                  style={styles.modalInput}
+                  value={editEmail}
+                  onChangeText={setEditEmail}
+                  placeholder="Email Address"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <TextInput
+                  style={[styles.modalInput, styles.textArea]}
+                  value={editAddress}
+                  onChangeText={setEditAddress}
+                  placeholder="Address"
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                />
+
+                {/* <View style={styles.smsSettingRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.smsLabel}>SMS Notifications</Text>
+                    <Text style={styles.smsSubLabel}>
+                      Send transaction updates via SMS
+                    </Text>
+                  </View>
+                  <Switch
+                    value={editSmsEnabled}
+                    onValueChange={setEditSmsEnabled}
+                    trackColor={{ false: colors.border, true: colors.accent }}
+                    thumbColor={
+                      editSmsEnabled ? colors.primary : colors.textMuted
+                    }
+                  />
+                </View> */}
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.cancelButton]}
+                    onPress={() => setEditCustomerVisible(false)}
+                  >
+                    <Text style={styles.cancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.saveButton]}
+                    onPress={handleSaveCustomer}
+                  >
+                    <Text style={styles.saveText}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* You Gave Modal */}
+        <Modal
+          visible={showGivenModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowGivenModal(false)}
+        >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>Send</Text>
-
               <TextInput
                 style={styles.modalInput}
+                value={givenAmount}
+                onChangeText={setGivenAmount}
                 placeholder="Amount"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
-                value={givenAmount}
-                onChangeText={setGivenAmount}
               />
-
+              <TextInput
+                style={styles.modalInput}
+                value={givenNote}
+                onChangeText={setGivenNote}
+                placeholder="Note (optional)"
+                placeholderTextColor={colors.textMuted}
+              />
               <TouchableOpacity
+                style={styles.modalInput}
                 onPress={() => {
                   setTxnDateTarget("given");
                   setShowTxnDatePicker(true);
                 }}
               >
-                <TextInput
-                  style={styles.modalInput}
-                  placeholder="Date"
-                  placeholderTextColor={colors.textMuted}
-                  value={givenDate.toLocaleDateString("en-IN")}
-                  editable={false}
-                  pointerEvents="none"
-                />
+                <Text style={{ color: colors.text }}>
+                  {givenDate.toLocaleDateString("en-IN")}
+                </Text>
               </TouchableOpacity>
-
-              <TextInput
-                style={[styles.modalInput, { height: 80 }]}
-                placeholder="Note (optional)"
-                placeholderTextColor={colors.textMuted}
-                value={givenNote}
-                onChangeText={setGivenNote}
-                multiline
-              />
 
               <View style={styles.modalButtons}>
                 <TouchableOpacity
@@ -596,7 +791,7 @@ export default function CustomerDetailScreen() {
                   <Text style={styles.cancelText}>Close</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.modalButton, styles.cancelButton]}
+                  style={[styles.modalButton, styles.saveButton]}
                   onPress={handleAddGivenEntryOnly}
                 >
                   <Text style={styles.saveText}>Entry</Text>
@@ -604,7 +799,6 @@ export default function CustomerDetailScreen() {
                 <TouchableOpacity
                   style={[styles.modalButton, styles.saveButton]}
                   onPress={() => {
-                    // Navigate to bill screen with preset info
                     setShowGivenModal(false);
                     router.push({
                       pathname: "./create-bill",
@@ -624,44 +818,41 @@ export default function CustomerDetailScreen() {
         </Modal>
 
         {/* You Received Modal */}
-        <Modal visible={showReceivedModal} transparent animationType="slide">
+        <Modal
+          visible={showReceivedModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowReceivedModal(false)}
+        >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>You Received</Text>
-
               <TextInput
                 style={styles.modalInput}
+                value={receivedAmount}
+                onChangeText={setReceivedAmount}
                 placeholder="Amount"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
-                value={receivedAmount}
-                onChangeText={setReceivedAmount}
               />
-
+              <TextInput
+                style={styles.modalInput}
+                value={receivedNote}
+                onChangeText={setReceivedNote}
+                placeholder="Note (optional)"
+                placeholderTextColor={colors.textMuted}
+              />
               <TouchableOpacity
+                style={styles.modalInput}
                 onPress={() => {
-                  setTxnDateTarget("received"); // ✅ use "received"
+                  setTxnDateTarget("received");
                   setShowTxnDatePicker(true);
                 }}
               >
-                <TextInput
-                  style={styles.modalInput}
-                  placeholder="Date"
-                  placeholderTextColor={colors.textMuted}
-                  value={receivedDate.toLocaleDateString("en-IN")} // ✅ use receivedDate
-                  editable={false}
-                  pointerEvents="none"
-                />
+                <Text style={{ color: colors.text }}>
+                  {receivedDate.toLocaleDateString("en-IN")}
+                </Text>
               </TouchableOpacity>
-
-              <TextInput
-                style={[styles.modalInput, { height: 80 }]}
-                placeholder="Note (optional)"
-                placeholderTextColor={colors.textMuted}
-                value={receivedNote}
-                onChangeText={setReceivedNote}
-                multiline
-              />
 
               <View style={styles.modalButtons}>
                 <TouchableOpacity
@@ -686,13 +877,13 @@ export default function CustomerDetailScreen() {
           </View>
         </Modal>
 
+        {/* Due Date Picker */}
         {showDueDateModal && (
           <DateTimePicker
             value={tempDueDate || new Date()}
             mode="date"
-            display="calendar"
+            display="default"
             onChange={async (event, selectedDate) => {
-              // User pressed Cancel
               if (event.type === "dismissed") {
                 setShowDueDateModal(false);
                 return;
@@ -703,31 +894,29 @@ export default function CustomerDetailScreen() {
                 return;
               }
 
-              // Update local state and DB
               const stored = selectedDate.toLocaleDateString("en-IN");
               setTempDueDate(selectedDate);
               await updateCustomerDueDate(user.id, customerData.id, stored);
               setCustomerData({ ...customerData, due_date: stored });
               appEvents.emit("customerUpdated");
-
-              // Close picker
               setShowDueDateModal(false);
             }}
           />
         )}
+
+        {/* Transaction Date Picker */}
         {showTxnDatePicker && (
           <DateTimePicker
             value={txnDateTarget === "given" ? givenDate : receivedDate}
             mode="date"
-            display="calendar"
-            maximumDate={new Date()} // cannot pick future dates
-            onChange={(_, selectedDate) => {
+            display="default"
+            maximumDate={new Date()}
+            onChange={(event, selectedDate) => {
               if (!selectedDate) {
                 setShowTxnDatePicker(false);
                 return;
               }
 
-              // clamp to today if somehow future
               const today = new Date();
               if (selectedDate > today) selectedDate = today;
 
@@ -754,30 +943,23 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: spacing.md,
   },
-  backButton: {
-    marginRight: 12,
-    padding: 4,
-  },
-  iconButton: {
-    padding: 4,
-    marginLeft: 8,
-  },
-  archiveButton: {
-    padding: 4,
-    marginLeft: 8,
-  },
-  headerText: {
-    flex: 1,
-  },
-  customerName: {
-    color: colors.text,
-    fontSize: 28,
-    fontWeight: "700",
-  },
+  backButton: { marginRight: 12, padding: 4 },
+  iconButton: { padding: 4, marginLeft: 8 },
+  archiveButton: { padding: 4, marginLeft: 8 },
+  headerText: { flex: 1 },
+  customerName: { color: colors.text, fontSize: 28, fontWeight: "700" },
   customerTag: {
     color: colors.textMuted,
     fontSize: typography.small,
     marginTop: 2,
+  },
+  customerPhotoSmall: { width: 40, height: 40, borderRadius: 20 },
+  customerPhotoLarge: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    alignSelf: "center",
+    marginBottom: 16,
   },
   balanceCard: { marginBottom: spacing.sm },
   balanceLabel: { color: colors.textMuted, fontSize: typography.small },
@@ -789,8 +971,45 @@ const styles = StyleSheet.create({
   },
   credit: { color: colors.accent },
   debit: { color: colors.danger },
-  buttonRow: { flexDirection: "row", gap: 10, marginBottom: spacing.md },
-  smallButton: { flex: 1 },
+  buttonRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: spacing.md,
+  },
+
+  gaveButton: {
+    flex: 1,
+    backgroundColor: colors.accent, // Green color
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  receivedButton: {
+    flex: 1,
+    backgroundColor: colors.danger, // Red color
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  buttonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+
+  // Remove or update these old styles if they exist:
+  smallButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sectionTitle: {
     color: colors.text,
     fontSize: typography.subheading,
@@ -836,6 +1055,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: colors.border,
+    maxHeight: "80%",
   },
   modalTitle: {
     color: colors.text,
@@ -854,6 +1074,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  textArea: { height: 80, textAlignVertical: "top" },
   modalButtons: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -881,12 +1102,49 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: colors.text,
   },
-  dueSetText: {
-    color: colors.accent,
-    fontWeight: "600",
+  dueSetText: { color: colors.accent, fontWeight: "600" },
+  dueClearText: { color: colors.danger, fontWeight: "600" },
+  imagePickerButton: { alignItems: "center", marginBottom: 16 },
+  imagePickerPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: colors.inputBackground,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderStyle: "dashed",
   },
-  dueClearText: {
-    color: colors.danger,
-    fontWeight: "600",
+  imagePickerText: { color: colors.textMuted, fontSize: 12, marginTop: 8 },
+  pickedImage: { width: 100, height: 100, borderRadius: 50 },
+  removeImageButton: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    backgroundColor: colors.card,
+    borderRadius: 12,
   },
+  smsSettingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.inputBackground,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  smsLabel: { color: colors.text, fontSize: 15, fontWeight: "600" },
+  smsSubLabel: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  profileDetailRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  profileLabel: { color: colors.textMuted, fontSize: 12, marginBottom: 4 },
+  profileValue: { color: colors.text, fontSize: 15, fontWeight: "500" },
 });
