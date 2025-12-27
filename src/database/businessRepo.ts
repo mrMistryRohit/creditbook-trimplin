@@ -1,3 +1,4 @@
+import SyncService from "../services/SyncService"; // ✅ ADD THIS
 import db from "./db";
 
 export interface Business {
@@ -19,6 +20,9 @@ export interface Business {
   logo_uri?: string | null;
   is_default: number;
   created_at: string;
+  firestore_id?: string; // ✅ ADD THIS
+  sync_status?: string; // ✅ ADD THIS
+  updated_at?: string; // ✅ ADD THIS
 }
 
 export const getBusinessesByUser = async (
@@ -55,11 +59,25 @@ export const addBusiness = async (
   phone?: string,
   address?: string
 ): Promise<number> => {
+  // ✅ UPDATED: Add sync fields
   const result = await db.runAsync(
-    `INSERT INTO businesses (user_id, name, description, phone, address, is_default) VALUES (?, ?, ?, ?, ?, 0)`,
-    [userId, name, description || null, phone || null, address || null]
+    `INSERT INTO businesses (user_id, name, description, phone, address, is_default, sync_status, updated_at) 
+     VALUES (?, ?, ?, ?, ?, 0, 'pending', ?)`,
+    [
+      userId,
+      name,
+      description || null,
+      phone || null,
+      address || null,
+      new Date().toISOString(),
+    ]
   );
-  return result.lastInsertRowId;
+
+  // ✅ ADD: Queue for sync
+  const businessId = result.lastInsertRowId;
+  await SyncService.queueForSync("businesses", businessId);
+
+  return businessId;
 };
 
 export const updateBusiness = async (
@@ -69,10 +87,23 @@ export const updateBusiness = async (
   phone?: string,
   address?: string
 ): Promise<void> => {
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
-    `UPDATE businesses SET name = ?, description = ?, phone = ?, address = ? WHERE id = ?`,
-    [name, description || null, phone || null, address || null, businessId]
+    `UPDATE businesses 
+     SET name = ?, description = ?, phone = ?, address = ?, sync_status = 'pending', updated_at = ? 
+     WHERE id = ?`,
+    [
+      name,
+      description || null,
+      phone || null,
+      address || null,
+      new Date().toISOString(),
+      businessId,
+    ]
   );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("businesses", businessId);
 };
 
 /**
@@ -97,6 +128,7 @@ export const updateBusinessFull = async (
     logo_uri?: string;
   }
 ): Promise<void> => {
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
     `UPDATE businesses SET 
       name = ?, 
@@ -112,7 +144,9 @@ export const updateBusinessFull = async (
       bank_account_number = ?,
       bank_ifsc = ?,
       bank_name = ?,
-      logo_uri = ?
+      logo_uri = ?,
+      sync_status = 'pending',
+      updated_at = ?
     WHERE id = ?`,
     [
       data.name,
@@ -129,9 +163,13 @@ export const updateBusinessFull = async (
       data.bank_ifsc || null,
       data.bank_name || null,
       data.logo_uri || null,
+      new Date().toISOString(), // ✅ ADD THIS
       businessId,
     ]
   );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("businesses", businessId);
 };
 
 /**
@@ -141,23 +179,33 @@ export const updateBusinessLogo = async (
   businessId: number,
   logoUri: string | null
 ): Promise<void> => {
-  await db.runAsync(`UPDATE businesses SET logo_uri = ? WHERE id = ?`, [
-    logoUri,
-    businessId,
-  ]);
+  // ✅ UPDATED: Add sync fields
+  await db.runAsync(
+    `UPDATE businesses SET logo_uri = ?, sync_status = 'pending', updated_at = ? WHERE id = ?`,
+    [logoUri, new Date().toISOString(), businessId]
+  );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("businesses", businessId);
 };
 
 export const setDefaultBusiness = async (
   userId: number,
   businessId: number
 ): Promise<void> => {
-  await db.runAsync(`UPDATE businesses SET is_default = 0 WHERE user_id = ?`, [
-    userId,
-  ]);
+  // ✅ UPDATED: Add sync fields to both queries
   await db.runAsync(
-    `UPDATE businesses SET is_default = 1 WHERE id = ? AND user_id = ?`,
-    [businessId, userId]
+    `UPDATE businesses SET is_default = 0, sync_status = 'pending', updated_at = ? WHERE user_id = ?`,
+    [new Date().toISOString(), userId]
   );
+
+  await db.runAsync(
+    `UPDATE businesses SET is_default = 1, sync_status = 'pending', updated_at = ? WHERE id = ? AND user_id = ?`,
+    [new Date().toISOString(), businessId, userId]
+  );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("businesses", businessId);
 };
 
 export const deleteBusiness = async (businessId: number): Promise<void> => {
@@ -178,4 +226,12 @@ export const deleteBusiness = async (businessId: number): Promise<void> => {
   }
 
   await db.runAsync(`DELETE FROM businesses WHERE id = ?`, [businessId]);
+
+  // ⚠️ NOTE: Actual deletion - not synced to Firestore
+  // If you want to sync deletions, use a "deleted" flag instead:
+  // await db.runAsync(
+  //   `UPDATE businesses SET deleted = 1, sync_status = 'pending', updated_at = ? WHERE id = ?`,
+  //   [new Date().toISOString(), businessId]
+  // );
+  // await SyncService.queueForSync("businesses", businessId);
 };

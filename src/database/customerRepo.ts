@@ -1,3 +1,5 @@
+// src/database/customerRepo.ts
+import SyncService from "../services/SyncService"; // ✅ ADD THIS
 import db from "./db";
 
 export interface Customer {
@@ -15,6 +17,9 @@ export interface Customer {
   due_date?: string | null;
   sms_enabled?: number;
   created_at?: string;
+  firestore_id?: string; // ✅ ADD THIS
+  sync_status?: string; // ✅ ADD THIS
+  updated_at?: string; // ✅ ADD THIS
 }
 
 export const getCustomersByUser = async (
@@ -45,12 +50,33 @@ export const addCustomer = async (
   businessId: number,
   name: string,
   phone?: string
-): Promise<void> => {
+): Promise<number> => {
+  // ✅ CHANGED: Return number (customer ID)
   const now = "Today";
-  await db.runAsync(
-    "INSERT INTO customers (user_id, business_id, name, phone, balance, last_activity, archived, due_date, sms_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [userId, businessId, name, phone || "", 0, now, 0, null, 1] // sms_enabled default 1
+
+  // ✅ UPDATED: Add sync fields
+  const result = await db.runAsync(
+    `INSERT INTO customers (user_id, business_id, name, phone, balance, last_activity, archived, due_date, sms_enabled, sync_status, updated_at) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    [
+      userId,
+      businessId,
+      name,
+      phone || "",
+      0,
+      now,
+      0,
+      null,
+      1,
+      new Date().toISOString(),
+    ]
   );
+
+  // ✅ ADD: Queue for sync
+  const customerId = result.lastInsertRowId;
+  await SyncService.queueForSync("customers", customerId);
+
+  return customerId; // ✅ ADD: Return the ID
 };
 
 export const updateCustomer = async (
@@ -59,10 +85,16 @@ export const updateCustomer = async (
   name: string,
   phone?: string
 ): Promise<void> => {
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
-    "UPDATE customers SET name = ?, phone = ? WHERE id = ? AND user_id = ?",
-    [name, phone || "", customerId, userId]
+    `UPDATE customers 
+     SET name = ?, phone = ?, sync_status = 'pending', updated_at = ? 
+     WHERE id = ? AND user_id = ?`,
+    [name, phone || "", new Date().toISOString(), customerId, userId]
   );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("customers", customerId);
 };
 
 /**
@@ -80,6 +112,7 @@ export const updateCustomerFull = async (
     sms_enabled?: number;
   }
 ): Promise<void> => {
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
     `UPDATE customers SET 
       name = ?, 
@@ -87,7 +120,9 @@ export const updateCustomerFull = async (
       email = ?, 
       address = ?,
       photo_uri = ?,
-      sms_enabled = ?
+      sms_enabled = ?,
+      sync_status = 'pending',
+      updated_at = ?
     WHERE id = ? AND user_id = ?`,
     [
       data.name,
@@ -96,10 +131,14 @@ export const updateCustomerFull = async (
       data.address || null,
       data.photo_uri || null,
       data.sms_enabled !== undefined ? data.sms_enabled : 1,
+      new Date().toISOString(), // ✅ ADD THIS
       customerId,
       userId,
     ]
   );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("customers", customerId);
 };
 
 /**
@@ -110,10 +149,16 @@ export const updateCustomerPhoto = async (
   customerId: number,
   photoUri: string | null
 ): Promise<void> => {
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
-    "UPDATE customers SET photo_uri = ? WHERE id = ? AND user_id = ?",
-    [photoUri, customerId, userId]
+    `UPDATE customers 
+     SET photo_uri = ?, sync_status = 'pending', updated_at = ? 
+     WHERE id = ? AND user_id = ?`,
+    [photoUri, new Date().toISOString(), customerId, userId]
   );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("customers", customerId);
 };
 
 /**
@@ -124,44 +169,73 @@ export const updateCustomerSMSSettings = async (
   customerId: number,
   smsEnabled: number
 ): Promise<void> => {
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
-    "UPDATE customers SET sms_enabled = ? WHERE id = ? AND user_id = ?",
-    [smsEnabled, customerId, userId]
+    `UPDATE customers 
+     SET sms_enabled = ?, sync_status = 'pending', updated_at = ? 
+     WHERE id = ? AND user_id = ?`,
+    [smsEnabled, new Date().toISOString(), customerId, userId]
   );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("customers", customerId);
 };
 
 export const archiveCustomer = async (
   userId: number,
   customerId: number
 ): Promise<void> => {
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
-    "UPDATE customers SET archived = 1 WHERE id = ? AND user_id = ?",
-    [customerId, userId]
+    `UPDATE customers 
+     SET archived = 1, sync_status = 'pending', updated_at = ? 
+     WHERE id = ? AND user_id = ?`,
+    [new Date().toISOString(), customerId, userId]
   );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("customers", customerId);
 };
 
 export const unarchiveCustomer = async (
   userId: number,
   customerId: number
 ): Promise<void> => {
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
-    "UPDATE customers SET archived = 0 WHERE id = ? AND user_id = ?",
-    [customerId, userId]
+    `UPDATE customers 
+     SET archived = 0, sync_status = 'pending', updated_at = ? 
+     WHERE id = ? AND user_id = ?`,
+    [new Date().toISOString(), customerId, userId]
   );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("customers", customerId);
 };
 
 export const deleteCustomer = async (
   userId: number,
   customerId: number
 ): Promise<void> => {
+  // First delete all transactions
   await db.runAsync(
     "DELETE FROM transactions WHERE customer_id = ? AND user_id = ?",
     [customerId, userId]
   );
+
+  // Then delete the customer
   await db.runAsync("DELETE FROM customers WHERE id = ? AND user_id = ?", [
     customerId,
     userId,
   ]);
+
+  // ⚠️ NOTE: Actual deletion - not synced to Firestore
+  // If you want to sync deletions, use archive instead or add a "deleted" flag:
+  // await db.runAsync(
+  //   `UPDATE customers SET deleted = 1, sync_status = 'pending', updated_at = ? WHERE id = ? AND user_id = ?`,
+  //   [new Date().toISOString(), customerId, userId]
+  // );
+  // await SyncService.queueForSync("customers", customerId);
 };
 
 export const updateCustomerDueDate = async (
@@ -169,8 +243,35 @@ export const updateCustomerDueDate = async (
   customerId: number,
   dueDate: string | null
 ): Promise<void> => {
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
-    "UPDATE customers SET due_date = ? WHERE id = ? AND user_id = ?",
-    [dueDate, customerId, userId]
+    `UPDATE customers 
+     SET due_date = ?, sync_status = 'pending', updated_at = ? 
+     WHERE id = ? AND user_id = ?`,
+    [dueDate, new Date().toISOString(), customerId, userId]
   );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("customers", customerId);
+};
+
+// ✅ ADD: Helper function to update customer balance (used by transactions)
+export const updateCustomerBalance = async (
+  customerId: number,
+  newBalance: number
+): Promise<void> => {
+  await db.runAsync(
+    `UPDATE customers 
+     SET balance = ?, last_activity = ?, sync_status = 'pending', updated_at = ? 
+     WHERE id = ?`,
+    [
+      newBalance,
+      new Date().toLocaleDateString("en-IN"),
+      new Date().toISOString(),
+      customerId,
+    ]
+  );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("customers", customerId);
 };

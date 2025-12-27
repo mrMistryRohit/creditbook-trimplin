@@ -1,3 +1,4 @@
+import SyncService from "../services/SyncService"; // ✅ ADD THIS
 import db from "./db";
 
 export interface User {
@@ -6,6 +7,9 @@ export interface User {
   email: string;
   phone?: string;
   shop_name?: string;
+  firestore_id?: string; // ✅ ADD THIS
+  sync_status?: string; // ✅ ADD THIS
+  updated_at?: string; // ✅ ADD THIS
 }
 
 export const createUser = async (
@@ -15,11 +19,26 @@ export const createUser = async (
   phone?: string,
   shopName?: string
 ): Promise<number> => {
+  // ✅ UPDATED: Add sync fields
   const result = await db.runAsync(
-    "INSERT INTO users (name, email, password, phone, shop_name) VALUES (?, ?, ?, ?, ?)",
-    [name, email, password, phone || "", shopName || ""]
+    `INSERT INTO users (name, email, password, phone, shop_name, sync_status, updated_at) 
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+    [
+      name,
+      email,
+      password,
+      phone || "",
+      shopName || "",
+      new Date().toISOString(),
+    ]
   );
-  return result.lastInsertRowId; // ✅ Return the new user's ID
+
+  const userId = result.lastInsertRowId;
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("users", userId);
+
+  return userId;
 };
 
 export const getUserByEmail = async (email: string): Promise<User | null> => {
@@ -34,9 +53,14 @@ export const updateUserProfile = async (
   name: string,
   shopName: string
 ): Promise<void> => {
-  await db.runAsync("UPDATE users SET name = ?, shop_name = ? WHERE id = ?", [
-    name,
-    shopName,
-    userId,
-  ]);
+  // ✅ UPDATED: Add sync fields
+  await db.runAsync(
+    `UPDATE users 
+     SET name = ?, shop_name = ?, sync_status = 'pending', updated_at = ? 
+     WHERE id = ?`,
+    [name, shopName, new Date().toISOString(), userId]
+  );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("users", userId);
 };

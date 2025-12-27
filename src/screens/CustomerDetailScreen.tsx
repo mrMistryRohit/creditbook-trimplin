@@ -1,3 +1,4 @@
+// src/screens/CustomerDetailScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";

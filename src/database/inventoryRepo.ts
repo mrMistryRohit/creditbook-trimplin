@@ -1,3 +1,5 @@
+// src/database/inventoryRepo.ts
+import SyncService from "../services/SyncService"; // ✅ ADD THIS
 import db from "./db";
 
 export interface InventoryItem {
@@ -14,6 +16,9 @@ export interface InventoryItem {
   photo_uri?: string;
   date_added: string;
   last_updated: string;
+  firestore_id?: string; // ✅ ADD THIS
+  sync_status?: string; // ✅ ADD THIS
+  updated_at?: string; // ✅ ADD THIS
 }
 
 export const UNIT_OPTIONS = [
@@ -57,9 +62,10 @@ export async function addInventoryItem(
   taxIncluded: string = "Included",
   photoUri?: string
 ): Promise<number> {
+  // ✅ UPDATED: Add sync fields
   const result = await db.runAsync(
-    `INSERT INTO inventory (business_id, item_name, quantity, unit, mrp, rate, product_code, tax_type, tax_included, photo_uri) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO inventory (business_id, item_name, quantity, unit, mrp, rate, product_code, tax_type, tax_included, photo_uri, sync_status, updated_at) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
     [
       businessId,
       itemName,
@@ -71,9 +77,16 @@ export async function addInventoryItem(
       taxType,
       taxIncluded,
       photoUri || null,
+      new Date().toISOString(),
     ]
   );
-  return result.lastInsertRowId;
+
+  const itemId = result.lastInsertRowId;
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("inventory", itemId);
+
+  return itemId;
 }
 
 export async function updateInventoryItem(
@@ -88,11 +101,12 @@ export async function updateInventoryItem(
   taxIncluded?: string,
   photoUri?: string
 ): Promise<void> {
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
     `UPDATE inventory 
      SET item_name = ?, quantity = ?, unit = ?, mrp = ?, rate = ?, 
          product_code = ?, tax_type = ?, tax_included = ?, photo_uri = ?,
-         last_updated = CURRENT_TIMESTAMP 
+         last_updated = CURRENT_TIMESTAMP, sync_status = 'pending', updated_at = ?
      WHERE id = ?`,
     [
       itemName,
@@ -104,23 +118,41 @@ export async function updateInventoryItem(
       taxType || "No Tax",
       taxIncluded || "Included",
       photoUri || null,
+      new Date().toISOString(),
       itemId,
     ]
   );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("inventory", itemId);
 }
 
 export async function updateInventoryQuantity(
   itemId: number,
   quantity: number
 ): Promise<void> {
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
-    `UPDATE inventory SET quantity = ?, last_updated = CURRENT_TIMESTAMP WHERE id = ?`,
-    [quantity, itemId]
+    `UPDATE inventory 
+     SET quantity = ?, last_updated = CURRENT_TIMESTAMP, sync_status = 'pending', updated_at = ? 
+     WHERE id = ?`,
+    [quantity, new Date().toISOString(), itemId]
   );
+
+  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("inventory", itemId);
 }
 
 export async function deleteInventoryItem(itemId: number): Promise<void> {
   await db.runAsync(`DELETE FROM inventory WHERE id = ?`, [itemId]);
+
+  // ⚠️ NOTE: Actual deletion - not synced to Firestore
+  // If you want to sync deletions, use a "deleted" flag instead:
+  // await db.runAsync(
+  //   `UPDATE inventory SET deleted = 1, sync_status = 'pending', updated_at = ? WHERE id = ?`,
+  //   [new Date().toISOString(), itemId]
+  // );
+  // await SyncService.queueForSync("inventory", itemId);
 }
 
 export async function getInventoryItem(

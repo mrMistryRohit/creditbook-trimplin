@@ -1,4 +1,8 @@
+// src/database/reportsRepo.ts
 import db from "./db";
+
+// ✅ NO SYNC NEEDED - Reports are read-only aggregations
+// Reports don't modify data, so no sync integration required
 
 export interface ReportSummary {
   totalCredit: number;
@@ -53,23 +57,42 @@ const getReportForPeriod = async (
     startDate: startDate?.toISOString(),
   });
 
+  // ✅ FIX: Add firestore_id to SELECT
   const allTransactions = await db.getAllAsync<{
     type: string;
     amount: number;
     date: string;
+    firestore_id: string | null;
   }>(
-    `SELECT type, amount, date FROM transactions WHERE user_id = ? AND business_id = ?`,
+    `SELECT type, amount, date, firestore_id 
+     FROM transactions 
+     WHERE user_id = ? AND business_id = ?`,
     [userId, businessId]
   );
 
   console.log(`📝 Total transactions found: ${allTransactions.length}`);
+
+  // ✅ FIX: Deduplicate by firestore_id FIRST
+  const seen = new Map<string, (typeof allTransactions)[0]>();
+
+  for (const txn of allTransactions) {
+    // Use firestore_id as key if available, otherwise create unique key
+    const key = txn.firestore_id || `${txn.amount}-${txn.type}-${txn.date}`;
+
+    if (!seen.has(key)) {
+      seen.set(key, txn);
+    }
+  }
+
+  const uniqueTransactions = Array.from(seen.values());
+  console.log(`📝 After deduplication: ${uniqueTransactions.length} unique`);
 
   let totalCredit = 0;
   let totalDebit = 0;
   let transactionCount = 0;
   let skippedCount = 0;
 
-  for (const txn of allTransactions) {
+  for (const txn of uniqueTransactions) {
     if (startDate) {
       const txnDate = parseDateString(txn.date);
 

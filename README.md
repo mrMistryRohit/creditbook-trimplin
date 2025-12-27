@@ -131,6 +131,8 @@ creditbook-trimplin
 │  │  ├─ 📄Card.tsx
 │  │  ├─ 📄PrimaryButton.tsx
 │  │  └─ 📄Screen.tsx
+│  ├─ 📁config
+│  │  └─ 📄firebase.ts
 │  ├─ 📁context
 │  │  ├─ 📄AuthContext.tsx
 │  │  ├─ 📄BillContext.tsx
@@ -161,6 +163,8 @@ creditbook-trimplin
 │  │  ├─ 📄StockItemDetailScreen.tsx
 │  │  ├─ 📄StockScreen.tsx
 │  │  └─ 📄SupplierDetailScreen.tsx
+│  ├─ 📁services
+│  │  └─ 📄SyncService.ts
 │  └─ 📁utils
 │     └─ 📄events.ts
 ├─ 📄.gitignore

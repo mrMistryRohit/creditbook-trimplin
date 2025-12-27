@@ -20,6 +20,7 @@ import { useAuth } from "../context/AuthContext";
 import { useBusiness } from "../context/BusinessContext";
 import {
   addInventoryItem,
+  getInventoryByBusiness,
   TAX_INCLUDED_OPTIONS,
   TAX_TYPES,
   UNIT_OPTIONS,
@@ -41,6 +42,7 @@ export default function AddStockItemScreen() {
   const [taxIncluded, setTaxIncluded] = useState("Included");
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [unitModalVisible, setUnitModalVisible] = useState(false);
   const [taxTypeModalVisible, setTaxTypeModalVisible] = useState(false);
@@ -59,7 +61,7 @@ export default function AddStockItemScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, // ✅ FIXED: Use correct enum
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -78,11 +80,69 @@ export default function AddStockItemScreen() {
       return;
     }
 
-    const mrpValue = parseFloat(mrp) || 0;
-    const quantityValue = parseFloat(quantity) || 0;
-    const rateValue = parseFloat(rate) || mrpValue;
+    // ✅ FIXED: Use Number.parseFloat
+    const mrpValue = Number.parseFloat(mrp) || 0;
+    const quantityValue = Number.parseFloat(quantity) || 0;
+    const rateValue = Number.parseFloat(rate) || mrpValue;
+
+    if (saving) return;
+    setSaving(true);
 
     try {
+      const existingItems = await getInventoryByBusiness(currentBusiness.id);
+      const duplicate = existingItems.find(
+        (item) => item.item_name.toLowerCase() === itemName.trim().toLowerCase()
+      );
+
+      if (duplicate) {
+        Alert.alert(
+          "Item Already Exists",
+          `"${itemName}" is already in your inventory with quantity ${duplicate.quantity} ${duplicate.unit}. Do you want to update the quantity instead?`,
+          [
+            {
+              text: "Cancel",
+              style: "cancel",
+              onPress: () => setSaving(false),
+            },
+            {
+              text: "View Item",
+              onPress: () => {
+                setSaving(false);
+                router.replace({
+                  pathname: "/stock-item-detail" as any,
+                  params: { itemId: duplicate.id.toString() },
+                });
+              },
+            },
+          ]
+        );
+        return;
+      }
+
+      if (productCode.trim()) {
+        const duplicateCode = existingItems.find(
+          (item) =>
+            item.product_code?.toLowerCase() ===
+            productCode.trim().toLowerCase()
+        );
+
+        if (duplicateCode) {
+          Alert.alert(
+            "Product Code Exists",
+            `Product code "${productCode}" is already used for "${duplicateCode.item_name}".`,
+            [
+              {
+                text: "OK",
+                onPress: () => setSaving(false),
+              },
+            ]
+          );
+          return;
+        }
+      }
+
+      console.log("✅ Creating new inventory item:", itemName);
+
       await addInventoryItem(
         currentBusiness.id,
         itemName.trim(),
@@ -96,6 +156,8 @@ export default function AddStockItemScreen() {
         photoUri || undefined
       );
 
+      console.log("✅ Item saved successfully");
+
       appEvents.emit("inventoryUpdated");
       Alert.alert("Success", "Item added successfully", [
         { text: "OK", onPress: () => router.back() },
@@ -103,6 +165,7 @@ export default function AddStockItemScreen() {
     } catch (error) {
       console.error("Error adding item:", error);
       Alert.alert("Error", "Failed to add item");
+      setSaving(false);
     }
   };
 
@@ -118,7 +181,6 @@ export default function AddStockItemScreen() {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Photo Upload */}
           <TouchableOpacity style={styles.photoContainer} onPress={pickImage}>
             {photoUri ? (
               <Image source={{ uri: photoUri }} style={styles.photo} />
@@ -130,7 +192,6 @@ export default function AddStockItemScreen() {
             )}
           </TouchableOpacity>
 
-          {/* Item Name */}
           <View style={styles.inputGroup}>
             <Ionicons
               name="pricetag-outline"
@@ -146,7 +207,6 @@ export default function AddStockItemScreen() {
             />
           </View>
 
-          {/* MRP and Quantity */}
           <View style={styles.row}>
             <View style={[styles.inputGroup, styles.halfWidth]}>
               <Text style={styles.label}>MRP</Text>
@@ -188,7 +248,6 @@ export default function AddStockItemScreen() {
             </View>
           </View>
 
-          {/* Toggle Details */}
           <TouchableOpacity
             style={styles.toggleButton}
             onPress={() => setShowDetails(!showDetails)}
@@ -203,10 +262,8 @@ export default function AddStockItemScreen() {
             />
           </TouchableOpacity>
 
-          {/* Additional Details */}
           {showDetails && (
             <>
-              {/* Rate and Date */}
               <View style={styles.row}>
                 <View style={[styles.inputGroup, styles.halfWidth]}>
                   <Ionicons
@@ -235,7 +292,6 @@ export default function AddStockItemScreen() {
                 </View>
               </View>
 
-              {/* Tax Type and Included */}
               <View style={styles.row}>
                 <TouchableOpacity
                   style={[styles.inputGroup, styles.halfWidth]}
@@ -267,7 +323,6 @@ export default function AddStockItemScreen() {
                 </TouchableOpacity>
               </View>
 
-              {/* Product Code */}
               <View style={styles.inputGroup}>
                 <Ionicons
                   name="barcode-outline"
@@ -285,14 +340,17 @@ export default function AddStockItemScreen() {
             </>
           )}
 
+          {/* ✅ FIXED: Remove disabled prop, handle in onPress */}
           <PrimaryButton
-            label="Save Item"
-            onPress={handleSave}
-            style={styles.saveButton}
+            label={saving ? "Saving..." : "Save Item"}
+            onPress={saving ? () => {} : handleSave}
+            style={[
+              styles.saveButton,
+              saving && { opacity: 0.5 }, // ✅ Visual feedback
+            ]}
           />
         </ScrollView>
 
-        {/* Unit Modal */}
         <Modal
           visible={unitModalVisible}
           transparent
@@ -327,7 +385,6 @@ export default function AddStockItemScreen() {
           </View>
         </Modal>
 
-        {/* Tax Type Modal */}
         <Modal
           visible={taxTypeModalVisible}
           transparent
@@ -362,7 +419,6 @@ export default function AddStockItemScreen() {
           </View>
         </Modal>
 
-        {/* Tax Included Modal */}
         <Modal
           visible={taxIncludedModalVisible}
           transparent

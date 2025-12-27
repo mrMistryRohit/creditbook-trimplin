@@ -1,3 +1,5 @@
+// src/database/supplierTransactionRepo.ts
+import SyncService from "../services/SyncService"; // ✅ ADD THIS
 import db from "./db";
 
 export interface SupplierTransaction {
@@ -9,16 +11,21 @@ export interface SupplierTransaction {
   amount: number;
   note?: string | null;
   date: string;
+  firestore_id?: string; // ✅ ADD THIS
+  sync_status?: string; // ✅ ADD THIS
+  updated_at?: string; // ✅ ADD THIS
 }
 
 export const getTransactionsForSupplier = async (
   userId: number,
   supplierId: number
 ): Promise<SupplierTransaction[]> => {
+  // ✅ ADD: Deduplicate by firestore_id or unique combination
   const rows = await db.getAllAsync<SupplierTransaction>(
-    `SELECT id, supplier_id, user_id, business_id, type, amount, note, date
+    `SELECT DISTINCT id, supplier_id, user_id, business_id, type, amount, note, date
      FROM supplier_transactions
      WHERE user_id = ? AND supplier_id = ?
+     GROUP BY COALESCE(firestore_id, id)  
      ORDER BY created_at DESC`,
     [userId, supplierId]
   );
@@ -33,18 +40,40 @@ export const addSupplierTransaction = async (
   amount: number,
   note: string,
   date: string
-): Promise<void> => {
-  await db.runAsync(
-    `INSERT INTO supplier_transactions (supplier_id, user_id, business_id, type, amount, note, date)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [supplierId, userId, businessId, type, amount, note, date]
+): Promise<number> => {
+  // ✅ CHANGED: Return number (transaction ID)
+  // ✅ UPDATED: Add sync fields
+  const result = await db.runAsync(
+    `INSERT INTO supplier_transactions (supplier_id, user_id, business_id, type, amount, note, date, sync_status, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    [
+      supplierId,
+      userId,
+      businessId,
+      type,
+      amount,
+      note,
+      date,
+      new Date().toISOString(),
+    ]
   );
 
+  const transactionId = result.lastInsertRowId;
+
+  // Update supplier balance
   const delta = type === "credit" ? amount : -amount;
   await db.runAsync(
-    `UPDATE suppliers SET balance = balance + ?, last_activity = ? WHERE id = ? AND user_id = ?`,
-    [delta, date, supplierId, userId]
+    `UPDATE suppliers 
+     SET balance = balance + ?, last_activity = ?, sync_status = 'pending', updated_at = ? 
+     WHERE id = ? AND user_id = ?`,
+    [delta, date, new Date().toISOString(), supplierId, userId]
   );
+
+  // ✅ ADD: Queue both for sync
+  await SyncService.queueForSync("supplier_transactions", transactionId);
+  await SyncService.queueForSync("suppliers", supplierId);
+
+  return transactionId; // ✅ ADD: Return the ID
 };
 
 export const updateSupplierTransaction = async (
@@ -62,15 +91,33 @@ export const updateSupplierTransaction = async (
   const newDelta = newType === "credit" ? newAmount : -newAmount;
   const netDelta = oldDelta + newDelta;
 
+  // ✅ UPDATED: Add sync fields
   await db.runAsync(
-    `UPDATE supplier_transactions SET type = ?, amount = ?, note = ?, date = ? WHERE id = ? AND user_id = ?`,
-    [newType, newAmount, newNote, newDate, transactionId, userId]
+    `UPDATE supplier_transactions 
+     SET type = ?, amount = ?, note = ?, date = ?, sync_status = 'pending', updated_at = ? 
+     WHERE id = ? AND user_id = ?`,
+    [
+      newType,
+      newAmount,
+      newNote,
+      newDate,
+      new Date().toISOString(),
+      transactionId,
+      userId,
+    ]
   );
 
+  // Update supplier balance
   await db.runAsync(
-    `UPDATE suppliers SET balance = balance + ?, last_activity = ? WHERE id = ? AND user_id = ?`,
-    [netDelta, newDate, supplierId, userId]
+    `UPDATE suppliers 
+     SET balance = balance + ?, last_activity = ?, sync_status = 'pending', updated_at = ? 
+     WHERE id = ? AND user_id = ?`,
+    [netDelta, newDate, new Date().toISOString(), supplierId, userId]
   );
+
+  // ✅ ADD: Queue both for sync
+  await SyncService.queueForSync("supplier_transactions", transactionId);
+  await SyncService.queueForSync("suppliers", supplierId);
 };
 
 export const deleteSupplierTransaction = async (
@@ -80,15 +127,30 @@ export const deleteSupplierTransaction = async (
   type: "credit" | "debit",
   amount: number
 ): Promise<void> => {
+  // Delete the supplier transaction
   await db.runAsync(
     `DELETE FROM supplier_transactions WHERE id = ? AND user_id = ?`,
     [transactionId, userId]
   );
 
+  // Revert supplier balance
   const delta = type === "credit" ? -amount : amount;
   const now = new Date().toLocaleString("en-IN");
   await db.runAsync(
-    `UPDATE suppliers SET balance = balance + ?, last_activity = ? WHERE id = ? AND user_id = ?`,
-    [delta, now, supplierId, userId]
+    `UPDATE suppliers 
+     SET balance = balance + ?, last_activity = ?, sync_status = 'pending', updated_at = ? 
+     WHERE id = ? AND user_id = ?`,
+    [delta, now, new Date().toISOString(), supplierId, userId]
   );
+
+  // ✅ ADD: Queue supplier for sync (transaction is deleted, so only supplier needs sync)
+  await SyncService.queueForSync("suppliers", supplierId);
+
+  // ⚠️ NOTE: Transaction deletion is not synced to Firestore
+  // If you need to sync deletions, use a "deleted" flag instead:
+  // await db.runAsync(
+  //   `UPDATE supplier_transactions SET deleted = 1, sync_status = 'pending', updated_at = ? WHERE id = ? AND user_id = ?`,
+  //   [new Date().toISOString(), transactionId, userId]
+  // );
+  // await SyncService.queueForSync("supplier_transactions", transactionId);
 };

@@ -1,4 +1,6 @@
+import SyncService from "../services/SyncService"; // ✅ ADD THIS
 import db from "./db";
+import { updateInventoryQuantity } from "./inventoryRepo"; // ✅ ADD THIS
 import { addTransactionForCustomer } from "./transactionRepo";
 
 export interface Bill {
@@ -11,6 +13,8 @@ export interface Bill {
   notes?: string | null;
   total: number;
   created_at: string;
+  firestore_id?: string; // ✅ ADD THIS
+  sync_status?: string; // ✅ ADD THIS
 }
 
 export interface BillItem {
@@ -33,7 +37,7 @@ export async function createBillWithItems(options: {
   businessId: number;
   customerId: number;
   billNumber: string;
-  billDate: string; // e.g. "2025-12-20"
+  billDate: string;
   notes?: string;
   items: {
     inventoryId?: number;
@@ -52,10 +56,11 @@ export async function createBillWithItems(options: {
   await db.execAsync("BEGIN TRANSACTION;");
 
   try {
+    // ✅ ADD: sync_status field
     const billResult = await db.runAsync(
       `INSERT INTO bills
-       (user_id, business_id, customer_id, bill_number, bill_date, notes, total)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (user_id, business_id, customer_id, bill_number, bill_date, notes, total, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         userId,
         businessId,
@@ -87,17 +92,31 @@ export async function createBillWithItems(options: {
         ]
       );
 
+      // ✅ IMPROVED: Use updateInventoryQuantity to trigger sync
       if (item.inventoryId != null) {
-        await db.runAsync(
-          `UPDATE inventory
-           SET quantity = quantity - ?
-           WHERE id = ? AND business_id = ?`,
-          [item.quantity, item.inventoryId, businessId]
+        // Get current quantity
+        const currentItem = await db.getFirstAsync<{ quantity: number }>(
+          `SELECT quantity FROM inventory WHERE id = ?`,
+          [item.inventoryId]
         );
+
+        if (currentItem) {
+          const newQuantity = currentItem.quantity - item.quantity;
+          // ✅ This will update SQLite + queue for Firestore sync
+          await updateInventoryQuantity(item.inventoryId, newQuantity);
+          console.log(
+            `✅ Reduced inventory ${item.inventoryId} by ${item.quantity} (new: ${newQuantity})`
+          );
+        }
       }
     }
 
     await db.execAsync("COMMIT;");
+
+    // ✅ ADD: Queue bill for sync
+    await SyncService.queueForSync("bills", billId);
+    console.log(`✅ Queued bill/${billId} for sync`);
+
     return billId;
   } catch (e) {
     await db.execAsync("ROLLBACK;");
@@ -105,9 +124,7 @@ export async function createBillWithItems(options: {
   }
 }
 
-/**
- * Create bill + items + reduce stock + log transaction in customer ledger
- */
+// ✅ Keep the rest of your code the same
 export async function createBillWithTransaction(options: {
   userId: number;
   businessId: number;
@@ -155,7 +172,7 @@ export async function createBillWithTransaction(options: {
     "credit",
     total,
     `Bill: ${options.billNumber}`,
-    formattedDate // Use formatted date instead of billDate
+    formattedDate
   );
 
   console.log("✅ Transaction added, emitting event...");
@@ -169,9 +186,6 @@ export async function createBillWithTransaction(options: {
   return billId;
 }
 
-/**
- * Get the next bill number for a business
- */
 export async function getNextBillNumber(businessId: number): Promise<string> {
   const result = await db.getFirstAsync<{ count: number }>(
     `SELECT COUNT(*) as count FROM bills WHERE business_id = ?`,

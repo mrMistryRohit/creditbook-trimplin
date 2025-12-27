@@ -22,6 +22,7 @@ import {
   Customer,
   getCustomersByUser,
 } from "../database/customerRepo";
+import db from "../database/db"; // ✅ ADD THIS
 import {
   addSupplier,
   getSuppliersByUser,
@@ -67,13 +68,20 @@ export default function HomeScreen() {
   const [reloadTrigger, setReloadTrigger] = useState(0);
 
   // ✅ ADD: Load businesses function
+  // ✅ UPDATED: Load businesses function
   const loadBusinesses = useCallback(async () => {
-    if (!user) return;
+    if (!user?.id || typeof user.id !== "number") {
+      console.log("⚠️ HomeScreen: Invalid user ID:", user?.id);
+      return;
+    }
+
     try {
+      console.log("🔄 HomeScreen: Loading businesses for user:", user.id);
       const businessList = await getBusinessesByUser(user.id);
+      console.log("✅ HomeScreen: Loaded", businessList.length, "businesses");
       setBusinesses(businessList);
     } catch (error) {
-      console.error("Error loading businesses:", error);
+      console.error("❌ HomeScreen: Error loading businesses:", error);
     }
   }, [user?.id]);
 
@@ -86,8 +94,14 @@ export default function HomeScreen() {
       currentBusiness?.id
     );
 
-    if (!user || !currentBusiness) {
-      console.log("⚠️ Missing user or business");
+    // ✅ UPDATED: Validate user and business
+    if (!user?.id || typeof user.id !== "number") {
+      console.log("⚠️ HomeScreen: Invalid user ID:", user?.id);
+      return;
+    }
+
+    if (!currentBusiness?.id) {
+      console.log("⚠️ HomeScreen: No business selected");
       return;
     }
 
@@ -95,7 +109,6 @@ export default function HomeScreen() {
     setSuppliers([]);
     setFilteredCustomers([]);
     setFilteredSuppliers([]);
-
     setLoading(true);
 
     try {
@@ -112,7 +125,6 @@ export default function HomeScreen() {
         "suppliers for business:",
         currentBusiness.id
       );
-
       setCustomers(customerList);
       setSuppliers(supplierList);
     } catch (error) {
@@ -126,6 +138,34 @@ export default function HomeScreen() {
     loadData();
     loadBusinesses(); // ✅ ADD THIS
   }, [loadData, loadBusinesses, reloadTrigger]);
+
+  // ✅ ADD: Debug sync columns (temporary - remove after verification)
+  useEffect(() => {
+    const testSyncColumns = async () => {
+      try {
+        const customerColumns = await db.getAllAsync(
+          "PRAGMA table_info(customers)"
+        );
+        console.log("📊 Customer table columns:", customerColumns);
+
+        // Check if sync columns exist
+        const hasSyncColumns = customerColumns.some(
+          (col: any) =>
+            col.name === "firestore_id" || col.name === "sync_status"
+        );
+
+        if (hasSyncColumns) {
+          console.log("✅ Sync columns verified in customers table");
+        } else {
+          console.log("❌ Sync columns NOT found in customers table");
+        }
+      } catch (error) {
+        console.error("Error checking sync columns:", error);
+      }
+    };
+
+    testSyncColumns();
+  }, []);
 
   useEffect(() => {
     const handler = () => {
@@ -250,7 +290,16 @@ export default function HomeScreen() {
   };
 
   const handleAddCustomer = async () => {
-    if (!user || !currentBusiness || !newName.trim()) return;
+    if (
+      !user?.id ||
+      typeof user.id !== "number" ||
+      !currentBusiness ||
+      !newName.trim()
+    ) {
+      console.log("⚠️ Cannot add customer - missing data");
+      return;
+    }
+
     await addCustomer(
       user.id,
       currentBusiness.id,
@@ -262,9 +311,17 @@ export default function HomeScreen() {
     setNewPhone("");
     setAddCustomerVisible(false);
   };
-
   const handleAddSupplier = async () => {
-    if (!user || !currentBusiness || !newName.trim()) return;
+    if (
+      !user?.id ||
+      typeof user.id !== "number" ||
+      !currentBusiness ||
+      !newName.trim()
+    ) {
+      console.log("⚠️ Cannot add supplier - missing data");
+      return;
+    }
+
     await addSupplier(
       user.id,
       currentBusiness.id,
@@ -276,7 +333,6 @@ export default function HomeScreen() {
     setNewPhone("");
     setAddSupplierVisible(false);
   };
-
   // ✅ ADD: Handle business switch
   const handleBusinessSwitch = (business: Business) => {
     setCurrentBusiness(business);

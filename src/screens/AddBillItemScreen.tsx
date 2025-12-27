@@ -49,7 +49,22 @@ export default function AddBillItemScreen() {
     const load = async () => {
       if (!currentBusiness) return;
       const list = await getInventoryByBusiness(currentBusiness.id);
-      setInventory(list);
+
+      // ✅ ADD: Deduplicate inventory items
+      const uniqueItems = list.reduce((acc, item) => {
+        const key = item.firestore_id || `local-${item.id}`;
+        if (!acc.has(key)) {
+          acc.set(key, item);
+        }
+        return acc;
+      }, new Map<string, InventoryItem>());
+
+      const deduplicatedList = Array.from(uniqueItems.values());
+      console.log(
+        `📊 Inventory deduplicated: ${list.length} → ${deduplicatedList.length} items`
+      );
+
+      setInventory(deduplicatedList);
     };
     load();
   }, [currentBusiness]);
@@ -288,6 +303,7 @@ export default function AddBillItemScreen() {
                 <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
+
             <ScrollView style={styles.modalList}>
               {inventory.length === 0 ? (
                 <Text style={styles.emptyText}>No items in stock</Text>

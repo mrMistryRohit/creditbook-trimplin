@@ -12,7 +12,7 @@ export const initDB = async () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
+        password_hash TEXT,
         phone TEXT,
         shop_name TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -157,11 +157,10 @@ export const initDB = async () => {
         FOREIGN KEY (inventory_id) REFERENCES inventory (id) ON DELETE SET NULL
       );
 
+      -- ✅ ONLY NON-SYNC INDEXES HERE
       CREATE INDEX IF NOT EXISTS idx_bills_business ON bills(business_id);
       CREATE INDEX IF NOT EXISTS idx_bills_customer ON bills(customer_id);
       CREATE INDEX IF NOT EXISTS idx_bill_items_bill ON bill_items(bill_id);
-
-      -- Create indexes for better performance
       CREATE INDEX IF NOT EXISTS idx_businesses_user ON businesses(user_id);
       CREATE INDEX IF NOT EXISTS idx_customers_user ON customers(user_id);
       CREATE INDEX IF NOT EXISTS idx_customers_business ON customers(business_id);
@@ -176,13 +175,15 @@ export const initDB = async () => {
       CREATE INDEX IF NOT EXISTS idx_inventory_business ON inventory(business_id);
     `);
 
-    // Run all migrations in order
-    await migrateRenamePasswordColumn();
-    await migrateAddArchivedColumn();
-    await migrateAddBusinessSupport();
-    await migrateAddCustomerDueDate();
-    await migrateAddEnhancedBusinessFields();
-    await migrateAddEnhancedCustomerFields();
+    // ✅ RUN MIGRATIONS IN CORRECT ORDER
+    await migrateRenamePasswordColumn(); // 1. Rename password → password_hash
+    await migratePasswordHashNullable(); // 2. Make password_hash nullable
+    await migrateAddArchivedColumn(); // 3. Add archived columns
+    await migrateAddBusinessSupport(); // 4. Add business support
+    await migrateAddCustomerDueDate(); // 5. Add due_date
+    await migrateAddEnhancedBusinessFields(); // 6. Enhanced business fields
+    await migrateAddEnhancedCustomerFields(); // 7. Enhanced customer fields
+    await migrateAddSyncColumns(); // 8. Add sync columns LAST
 
     console.log("✅ Database initialized successfully");
   } catch (error) {
@@ -200,7 +201,7 @@ const migrateRenamePasswordColumn = async () => {
       `SELECT COUNT(*) as count FROM pragma_table_info('users') WHERE name='password_hash'`
     );
 
-    if (result && result.count === 0) {
+    if (result?.count === 0) {
       const passwordExists = await db.getFirstAsync<{ count: number }>(
         `SELECT COUNT(*) as count FROM pragma_table_info('users') WHERE name='password'`
       );
@@ -452,12 +453,215 @@ const migrateAddEnhancedCustomerFields = async () => {
 };
 
 /**
+ * Migration 7: Add sync columns to all tables
+ */
+const migrateAddSyncColumns = async () => {
+  try {
+    console.log("🔄 Migration: Adding sync columns to all tables...");
+
+    // Check if sync columns already exist in users table
+    const result = await db.getFirstAsync<{ count: number }>(
+      `SELECT COUNT(*) as count FROM pragma_table_info('users') WHERE name='firestore_id'`
+    );
+
+    if (result && result.count === 0) {
+      // Add sync columns to users table
+      await db.execAsync(`
+        ALTER TABLE users ADD COLUMN firestore_id TEXT;
+        ALTER TABLE users ADD COLUMN sync_status TEXT DEFAULT 'pending';
+        ALTER TABLE users ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP;
+      `);
+      console.log("✅ Sync columns added to users");
+
+      // Add sync columns to businesses table
+      await db.execAsync(`
+        ALTER TABLE businesses ADD COLUMN firestore_id TEXT;
+        ALTER TABLE businesses ADD COLUMN sync_status TEXT DEFAULT 'pending';
+        ALTER TABLE businesses ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP;
+      `);
+      console.log("✅ Sync columns added to businesses");
+
+      // Add sync columns to customers table
+      await db.execAsync(`
+        ALTER TABLE customers ADD COLUMN firestore_id TEXT;
+        ALTER TABLE customers ADD COLUMN sync_status TEXT DEFAULT 'pending';
+        ALTER TABLE customers ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP;
+      `);
+      console.log("✅ Sync columns added to customers");
+
+      // Add sync columns to suppliers table
+      await db.execAsync(`
+        ALTER TABLE suppliers ADD COLUMN firestore_id TEXT;
+        ALTER TABLE suppliers ADD COLUMN sync_status TEXT DEFAULT 'pending';
+        ALTER TABLE suppliers ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP;
+      `);
+      console.log("✅ Sync columns added to suppliers");
+
+      // Add sync columns to transactions table
+      await db.execAsync(`
+        ALTER TABLE transactions ADD COLUMN firestore_id TEXT;
+        ALTER TABLE transactions ADD COLUMN sync_status TEXT DEFAULT 'pending';
+        ALTER TABLE transactions ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP;
+      `);
+      console.log("✅ Sync columns added to transactions");
+
+      // Add sync columns to supplier_transactions table
+      await db.execAsync(`
+        ALTER TABLE supplier_transactions ADD COLUMN firestore_id TEXT;
+        ALTER TABLE supplier_transactions ADD COLUMN sync_status TEXT DEFAULT 'pending';
+        ALTER TABLE supplier_transactions ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP;
+      `);
+      console.log("✅ Sync columns added to supplier_transactions");
+
+      // Add sync columns to inventory table
+      await db.execAsync(`
+        ALTER TABLE inventory ADD COLUMN firestore_id TEXT;
+        ALTER TABLE inventory ADD COLUMN sync_status TEXT DEFAULT 'pending';
+        ALTER TABLE inventory ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP;
+      `);
+      console.log("✅ Sync columns added to inventory");
+
+      // Add sync columns to bills table
+      await db.execAsync(`
+        ALTER TABLE bills ADD COLUMN firestore_id TEXT;
+        ALTER TABLE bills ADD COLUMN sync_status TEXT DEFAULT 'pending';
+        ALTER TABLE bills ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP;
+      `);
+      console.log("✅ Sync columns added to bills");
+
+      // Add sync columns to bill_items table
+      await db.execAsync(`
+        ALTER TABLE bill_items ADD COLUMN firestore_id TEXT;
+        ALTER TABLE bill_items ADD COLUMN sync_status TEXT DEFAULT 'pending';
+        ALTER TABLE bill_items ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP;
+      `);
+      console.log("✅ Sync columns added to bill_items");
+
+      // Create indexes for sync queries (improves performance)
+      await db.execAsync(`
+        CREATE INDEX IF NOT EXISTS idx_sync_users ON users(sync_status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_sync_businesses ON businesses(sync_status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_sync_customers ON customers(sync_status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_sync_suppliers ON suppliers(sync_status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_sync_transactions ON transactions(sync_status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_sync_supplier_transactions ON supplier_transactions(sync_status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_sync_inventory ON inventory(sync_status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_sync_bills ON bills(sync_status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_sync_bill_items ON bill_items(sync_status, updated_at);
+      `);
+      console.log("✅ Sync indexes created");
+
+      console.log("✅ Migration: Sync columns completed successfully");
+    } else {
+      console.log("✓ Migration: Sync columns already exist");
+    }
+  } catch (error) {
+    console.error("❌ Migration error (sync columns):", error);
+    throw error;
+  }
+};
+
+/**
+ * Migration 8: Make password_hash nullable (since we use Firebase Auth)
+ */
+const migratePasswordHashNullable = async () => {
+  try {
+    // ✅ Properly typed interface for PRAGMA result
+    interface ColumnInfo {
+      cid: number;
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: any;
+      pk: number;
+    }
+
+    // Check if password_hash column exists and get its info
+    const columnInfo = await db.getAllAsync<ColumnInfo>(
+      `PRAGMA table_info('users')`
+    );
+
+    const passwordHashColumn = columnInfo.find(
+      (col) => col.name === "password_hash"
+    );
+
+    if (!passwordHashColumn) {
+      console.log("✓ Migration: password_hash column doesn't exist yet");
+      return;
+    }
+
+    if (passwordHashColumn.notnull === 1) {
+      console.log("🔄 Migration: Making password_hash nullable...");
+
+      // Check if sync columns exist in users table
+      const hasSyncColumns = columnInfo.some(
+        (col) => col.name === "firestore_id"
+      );
+
+      // SQLite doesn't support ALTER COLUMN, so we need to recreate the table
+      if (hasSyncColumns) {
+        // Users table already has sync columns
+        await db.execAsync(`
+          CREATE TABLE users_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT,
+            phone TEXT,
+            shop_name TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            firestore_id TEXT,
+            sync_status TEXT DEFAULT 'pending',
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+          );
+
+          INSERT INTO users_new 
+          SELECT id, name, email, password_hash, phone, shop_name, created_at, firestore_id, sync_status, updated_at 
+          FROM users;
+
+          DROP TABLE users;
+          ALTER TABLE users_new RENAME TO users;
+        `);
+      } else {
+        // Users table doesn't have sync columns yet
+        await db.execAsync(`
+          CREATE TABLE users_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT,
+            phone TEXT,
+            shop_name TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+
+          INSERT INTO users_new (id, name, email, password_hash, phone, shop_name, created_at)
+          SELECT id, name, email, password_hash, phone, shop_name, created_at 
+          FROM users;
+
+          DROP TABLE users;
+          ALTER TABLE users_new RENAME TO users;
+        `);
+      }
+
+      console.log("✅ Migration: password_hash is now nullable");
+    } else {
+      console.log("✓ Migration: password_hash already nullable");
+    }
+  } catch (error) {
+    console.error("❌ Migration error (password_hash nullable):", error);
+  }
+};
+
+/**
  * Utility: Reset database (development only)
  */
 export const resetDatabase = async () => {
   try {
     console.log("⚠️ Resetting database...");
     await db.execAsync(`
+      DROP TABLE IF EXISTS bill_items;
+      DROP TABLE IF EXISTS bills;
       DROP TABLE IF EXISTS supplier_transactions;
       DROP TABLE IF EXISTS transactions;
       DROP TABLE IF EXISTS inventory;
@@ -465,9 +669,9 @@ export const resetDatabase = async () => {
       DROP TABLE IF EXISTS customers;
       DROP TABLE IF EXISTS businesses;
       DROP TABLE IF EXISTS users;
+      DROP TABLE IF EXISTS sync_metadata;
     `);
     console.log("✅ Database reset complete");
-    await initDB();
   } catch (error) {
     console.error("❌ Database reset error:", error);
     throw error;
@@ -516,6 +720,102 @@ export const getDatabaseStats = async () => {
     return stats;
   } catch (error) {
     console.error("❌ Error fetching database stats:", error);
+  }
+};
+/**
+ * Helper: Mark item as pending sync
+ */
+export const markAsPendingSync = async (
+  table: string,
+  id: number
+): Promise<void> => {
+  try {
+    await db.runAsync(
+      `UPDATE ${table} SET sync_status = 'pending', updated_at = ? WHERE id = ?`,
+      [new Date().toISOString(), id]
+    );
+  } catch (error) {
+    console.error(`Error marking ${table} ${id} as pending:`, error);
+  }
+};
+
+/**
+ * Helper: Mark item as synced
+ */
+export const markAsSynced = async (
+  table: string,
+  id: number,
+  firestoreId: string
+): Promise<void> => {
+  try {
+    await db.runAsync(
+      `UPDATE ${table} SET sync_status = 'synced', firestore_id = ?, updated_at = ? WHERE id = ?`,
+      [firestoreId, new Date().toISOString(), id]
+    );
+  } catch (error) {
+    console.error(`Error marking ${table} ${id} as synced:`, error);
+  }
+};
+
+/**
+ * Helper: Get all pending items for sync
+ */
+export const getPendingItems = async (table: string): Promise<any[]> => {
+  try {
+    const items = await db.getAllAsync(
+      `SELECT * FROM ${table} WHERE sync_status = 'pending' OR sync_status IS NULL ORDER BY updated_at ASC`
+    );
+    return items ?? [];
+  } catch (error) {
+    console.error(`Error getting pending items from ${table}:`, error);
+    return [];
+  }
+};
+
+/**
+ * Helper: Get last sync timestamp
+ */
+export const getLastSyncTime = async (): Promise<string | null> => {
+  try {
+    const result = await db.getFirstAsync<{ sync_time: string }>(
+      `SELECT sync_time FROM sync_metadata WHERE id = 1`
+    );
+    return result?.sync_time || null;
+  } catch {
+    // Table might not exist yet
+    return null;
+  }
+};
+
+/**
+ * Helper: Update last sync timestamp
+ */
+export const updateLastSyncTime = async (): Promise<void> => {
+  try {
+    // Create sync_metadata table if it doesn't exist
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS sync_metadata (
+        id INTEGER PRIMARY KEY,
+        sync_time TEXT NOT NULL
+      );
+    `);
+
+    const exists = await db.getFirstAsync<{ count: number }>(
+      `SELECT COUNT(*) as count FROM sync_metadata WHERE id = 1`
+    );
+
+    if (exists && exists.count > 0) {
+      await db.runAsync(`UPDATE sync_metadata SET sync_time = ? WHERE id = 1`, [
+        new Date().toISOString(),
+      ]);
+    } else {
+      await db.runAsync(
+        `INSERT INTO sync_metadata (id, sync_time) VALUES (1, ?)`,
+        [new Date().toISOString()]
+      );
+    }
+  } catch (error) {
+    console.error("Error updating last sync time:", error);
   }
 };
 

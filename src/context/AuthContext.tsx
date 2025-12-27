@@ -1,13 +1,35 @@
-import * as Crypto from "expo-crypto";
-import * as SecureStore from "expo-secure-store";
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { addBusiness } from "../database/businessRepo";
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+} from "firebase/auth";
+import {
+  collection,
+  doc,
+  Firestore,
+  getDoc,
+  getDocs,
+  query,
+  setDoc,
+  where,
+} from "firebase/firestore";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { auth, firestore } from "../config/firebase";
 import db from "../database/db";
+import SyncService from "../services/SyncService";
 
 interface User {
   id: number;
-  name: string;
+  firebaseUid: string;
   email: string;
+  name: string;
   phone?: string;
   shop_name?: string;
 }
@@ -31,41 +53,163 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Hash password using expo-crypto
-const hashPassword = async (password: string): Promise<string> => {
-  const hash = await Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    password
-  );
-  return hash;
-};
-
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // ✅ FIXED: Check Firestore before creating businesses
   useEffect(() => {
-    loadUser();
-  }, []);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        console.log("🔐 Firebase user logged in:", firebaseUser.uid);
 
-  const loadUser = async () => {
-    try {
-      const userId = await SecureStore.getItemAsync("userId");
-      if (userId) {
-        const result = await db.getFirstAsync<User>(
-          "SELECT id, name, email, phone, shop_name FROM users WHERE id = ?",
-          [parseInt(userId)]
-        );
-        if (result) {
-          setUser(result);
+        try {
+          // Fetch Firestore user data
+          const userDocRef = doc(firestore, "users", firebaseUser.uid);
+          const userDoc = await getDoc(userDocRef);
+
+          if (userDoc.exists()) {
+            const firestoreData = userDoc.data();
+
+            // ✅ Check if SQLite user exists
+            let sqliteUser = await db.getFirstAsync<{
+              id: number;
+              name: string;
+              email: string;
+              phone: string | null;
+              shop_name: string | null;
+            }>(
+              `SELECT id, name, email, phone, shop_name FROM users WHERE email = ?`,
+              [firebaseUser.email?.toLowerCase() || ""]
+            );
+
+            // ✅ If SQLite user doesn't exist, create it
+            if (!sqliteUser) {
+              console.log("⚠️ SQLite user not found, creating...");
+
+              try {
+                const result = await db.runAsync(
+                  `INSERT INTO users (name, email, phone, shop_name) VALUES (?, ?, ?, ?)`,
+                  [
+                    firestoreData.name || "",
+                    firebaseUser.email?.toLowerCase() || "",
+                    firestoreData.phone || "",
+                    firestoreData.shop_name || "",
+                  ]
+                );
+
+                const newUserId = result.lastInsertRowId;
+                console.log("✅ SQLite user created with ID:", newUserId);
+
+                // Fetch the new user
+                sqliteUser = await db.getFirstAsync<{
+                  id: number;
+                  name: string;
+                  email: string;
+                  phone: string | null;
+                  shop_name: string | null;
+                }>(
+                  `SELECT id, name, email, phone, shop_name FROM users WHERE id = ?`,
+                  [newUserId]
+                );
+              } catch (error: any) {
+                if (error.message?.includes("UNIQUE constraint failed")) {
+                  console.log(
+                    "⚠️ User already exists (race condition), fetching..."
+                  );
+                  sqliteUser = await db.getFirstAsync<{
+                    id: number;
+                    name: string;
+                    email: string;
+                    phone: string | null;
+                    shop_name: string | null;
+                  }>(
+                    `SELECT id, name, email, phone, shop_name FROM users WHERE email = ?`,
+                    [firebaseUser.email?.toLowerCase() || ""]
+                  );
+                } else {
+                  console.error("❌ Error creating SQLite user:", error);
+                  throw error;
+                }
+              }
+            } else {
+              console.log("✅ SQLite user found with ID:", sqliteUser.id);
+            }
+
+            // ✅ NEW: Check Firestore for existing businesses FIRST
+            const businessesRef = collection(firestore, "businesses");
+            const q = query(
+              businessesRef,
+              where("user_id", "==", firebaseUser.uid)
+            );
+            const businessesSnapshot = await getDocs(q);
+
+            console.log(
+              `📊 Found ${businessesSnapshot.size} businesses in Firestore`
+            );
+
+            if (sqliteUser) {
+              // ✅ Only create default business if none exist in Firestore
+              if (businessesSnapshot.empty) {
+                const localBusiness = await db.getFirstAsync<{ id: number }>(
+                  `SELECT id FROM businesses WHERE user_id = ?`,
+                  [sqliteUser.id]
+                );
+
+                if (!localBusiness) {
+                  console.log(
+                    "⚠️ No businesses found anywhere, creating default..."
+                  );
+                  const businessName =
+                    firestoreData.shop_name?.trim() ||
+                    `${firestoreData.name?.trim()}'s Business`;
+
+                  await db.runAsync(
+                    `INSERT INTO businesses (user_id, name, description, is_default, sync_status, updated_at) VALUES (?, ?, ?, 1, 'pending', ?)`,
+                    [
+                      sqliteUser.id,
+                      businessName,
+                      "Default business account",
+                      new Date().toISOString(),
+                    ]
+                  );
+                  console.log("✅ Default business created in SQLite");
+                }
+              } else {
+                console.log(
+                  "✅ Businesses exist in Firestore, will sync from cloud"
+                );
+              }
+
+              setUser({
+                id: sqliteUser.id,
+                firebaseUid: firebaseUser.uid,
+                email: sqliteUser.email,
+                name: sqliteUser.name,
+                phone: sqliteUser.phone || undefined,
+                shop_name: sqliteUser.shop_name || undefined,
+              });
+
+              // ✅ Initialize sync service - it will download businesses from Firestore
+              await SyncService.initializeSync(firebaseUser.uid);
+            }
+          }
+        } catch (error) {
+          console.error("❌ Error in auth state change:", error);
         }
+      } else {
+        console.log("🔐 No Firebase user");
+        setUser(null);
+        SyncService.cleanup();
       }
-    } catch (error) {
-      console.error("Load user error:", error);
-    } finally {
+
       setIsLoading(false);
-    }
-  };
+    });
+
+    return unsubscribe;
+  }, []);
 
   const register = async (
     name: string,
@@ -74,143 +218,230 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     shopName?: string
   ) => {
     try {
-      // Check if user exists
-      const existing = await db.getFirstAsync(
-        "SELECT id FROM users WHERE email = ?",
-        [email.toLowerCase()]
+      // ✅ Create Firebase user
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password
       );
+      const uid = userCredential.user.uid;
 
-      if (existing) {
-        return { success: false, message: "Email already registered" };
-      }
-
-      // Hash password
-      const passwordHash = await hashPassword(password);
-
-      // Insert user
-      const result = await db.runAsync(
-        "INSERT INTO users (name, email, password_hash, shop_name) VALUES (?, ?, ?, ?)",
-        [name, email.toLowerCase(), passwordHash, shopName || ""]
-      );
-
-      const newUserId = result.lastInsertRowId;
-
-      console.log("✅ User created with ID:", newUserId);
-
-      // ✅ Create default business (automatically is_default = 0 initially)
-      const businessName = shopName?.trim() || `${name.trim()}'s Business`;
-      await addBusiness(
-        newUserId,
-        businessName,
-        "Default business account",
-        "",
-        ""
-      );
-
-      console.log("✅ Default business created:", businessName);
-
-      // ✅ Since this is the user's FIRST business, set it as default
-      // This is safe because there's only one business at this point
-      await db.runAsync(
-        "UPDATE businesses SET is_default = 1 WHERE user_id = ?",
-        [newUserId]
-      );
-
-      console.log("✅ Business set as default");
-
-      const newUser: User = {
-        id: newUserId,
-        name,
+      const userData = {
         email: email.toLowerCase(),
-        shop_name: shopName,
+        name,
+        phone: "",
+        shop_name: shopName || "",
+        created_at: new Date().toISOString(),
       };
 
-      await SecureStore.setItemAsync("userId", newUser.id.toString());
-      setUser(newUser);
+      // ✅ Save user to Firestore
+      await setDoc(doc(firestore as Firestore, "users", uid), userData);
+
+      // ✅ Save user to SQLite with error handling
+      let newUserId: number;
+
+      try {
+        const result = await db.runAsync(
+          `INSERT INTO users (name, email, phone, shop_name) VALUES (?, ?, ?, ?)`,
+          [name, email.toLowerCase(), "", shopName || ""]
+        );
+        newUserId = result.lastInsertRowId;
+        console.log("✅ SQLite user created with ID:", newUserId);
+      } catch (dbError: any) {
+        // ✅ Handle race condition - user already created by onAuthStateChanged
+        if (dbError.message?.includes("UNIQUE constraint failed")) {
+          console.log(
+            "⚠️ User already exists (race condition), fetching existing..."
+          );
+          const existingUser = await db.getFirstAsync<{ id: number }>(
+            `SELECT id FROM users WHERE email = ?`,
+            [email.toLowerCase()]
+          );
+
+          if (!existingUser) {
+            throw new Error("Failed to create or find user");
+          }
+
+          newUserId = existingUser.id;
+          console.log("✅ Using existing SQLite user ID:", newUserId);
+        } else {
+          throw dbError;
+        }
+      }
+
+      // ✅ Check if business already exists (might have been created by onAuthStateChanged)
+      const existingBusiness = await db.getFirstAsync<{
+        id: number;
+        firestore_id: string | null;
+      }>(`SELECT id, firestore_id FROM businesses WHERE user_id = ?`, [
+        newUserId,
+      ]);
+
+      if (existingBusiness) {
+        console.log("✅ Business already exists, skipping creation");
+      } else {
+        // ✅ Create default business name
+        const businessName = shopName?.trim() || `${name.trim()}'s Business`;
+
+        // ✅ Create business in Firestore FIRST with auto-generated ID
+        const firestoreBusinessRef = doc(
+          collection(firestore as Firestore, "businesses")
+        );
+        const businessData = {
+          user_id: uid,
+          name: businessName,
+          description: "Default business account",
+          phone: "",
+          address: "",
+          is_default: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        await setDoc(firestoreBusinessRef, businessData);
+        console.log(
+          "✅ Business created in Firestore:",
+          firestoreBusinessRef.id
+        );
+
+        // ✅ Create business in SQLite with Firestore ID (synced status)
+        await db.runAsync(
+          `INSERT INTO businesses (user_id, name, description, is_default, firestore_id, sync_status, updated_at) VALUES (?, ?, ?, 1, ?, 'synced', ?)`,
+          [
+            newUserId,
+            businessName,
+            "Default business account",
+            firestoreBusinessRef.id,
+            new Date().toISOString(),
+          ]
+        );
+        console.log("✅ Business created in SQLite");
+      }
+
+      // ✅ Fetch the final user state
+      const finalUser = await db.getFirstAsync<{
+        id: number;
+        name: string;
+        email: string;
+        phone: string | null;
+        shop_name: string | null;
+      }>(`SELECT id, name, email, phone, shop_name FROM users WHERE id = ?`, [
+        newUserId,
+      ]);
+
+      if (finalUser) {
+        setUser({
+          id: finalUser.id,
+          firebaseUid: uid,
+          email: finalUser.email,
+          name: finalUser.name,
+          phone: finalUser.phone || undefined,
+          shop_name: finalUser.shop_name || undefined,
+        });
+      }
 
       return { success: true, message: "Registration successful" };
-    } catch (error) {
-      console.error("Register error:", error);
+    } catch (error: any) {
+      console.error("❌ Register error:", error);
+
+      let message = "Registration failed";
+      if (error.code === "auth/email-already-in-use") {
+        message = "This email is already registered";
+      } else if (error.code === "auth/weak-password") {
+        message = "Password should be at least 6 characters";
+      } else if (error.code === "auth/invalid-email") {
+        message = "Invalid email address";
+      } else if (error.message) {
+        message = error.message;
+      }
+
       return {
         success: false,
-        message: error instanceof Error ? error.message : "Registration failed",
+        message,
       };
     }
   };
 
   const login = async (email: string, password: string) => {
     try {
-      const result = await db.getFirstAsync<User & { password_hash: string }>(
-        "SELECT id, name, email, phone, shop_name, password_hash FROM users WHERE email = ?",
-        [email.toLowerCase()]
-      );
-
-      if (!result) {
-        return { success: false, message: "Invalid email or password" };
-      }
-
-      // Hash the input password and compare
-      const passwordHash = await hashPassword(password);
-
-      if (passwordHash !== result.password_hash) {
-        return { success: false, message: "Invalid email or password" };
-      }
-
-      const userData: User = {
-        id: result.id,
-        name: result.name,
-        email: result.email,
-        phone: result.phone,
-        shop_name: result.shop_name,
-      };
-
-      await SecureStore.setItemAsync("userId", userData.id.toString());
-      setUser(userData);
-
+      await signInWithEmailAndPassword(auth, email, password);
       return { success: true, message: "Login successful" };
-    } catch (error) {
-      console.error("Login error:", error);
+    } catch (error: any) {
+      console.error("❌ Login error:", error);
+
+      let message = "Login failed";
+      if (
+        error.code === "auth/user-not-found" ||
+        error.code === "auth/wrong-password" ||
+        error.code === "auth/invalid-credential"
+      ) {
+        message = "Invalid email or password";
+      } else if (error.code === "auth/too-many-requests") {
+        message = "Too many attempts. Please try again later";
+      } else if (error.code === "auth/network-request-failed") {
+        message = "Network error. Please check your connection";
+      }
+
       return {
         success: false,
-        message: error instanceof Error ? error.message : "Login failed",
+        message,
       };
     }
   };
 
   const refreshUser = async () => {
-    try {
-      const userId = await SecureStore.getItemAsync("userId");
-      if (!userId) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
 
-      const result = await db.getFirstAsync<User>(
-        "SELECT id, name, email, phone, shop_name FROM users WHERE id = ?",
-        [parseInt(userId)]
+    const userDocRef = doc(firestore as Firestore, "users", currentUser.uid);
+    const userDoc = await getDoc(userDocRef);
+
+    if (userDoc.exists()) {
+      const sqliteUser = await db.getFirstAsync<{
+        id: number;
+        name: string;
+        email: string;
+        phone: string | null;
+        shop_name: string | null;
+      }>(
+        `SELECT id, name, email, phone, shop_name FROM users WHERE email = ?`,
+        [currentUser.email?.toLowerCase() || ""]
       );
 
-      if (result) {
-        setUser(result);
+      if (sqliteUser) {
+        setUser({
+          id: sqliteUser.id,
+          firebaseUid: currentUser.uid,
+          email: sqliteUser.email,
+          name: sqliteUser.name,
+          phone: sqliteUser.phone || undefined,
+          shop_name: sqliteUser.shop_name || undefined,
+        });
       }
-    } catch (error) {
-      console.error("Refresh user error:", error);
     }
   };
 
   const logout = async () => {
     try {
-      await SecureStore.deleteItemAsync("userId");
+      if (user) {
+        await SyncService.syncNow(user.firebaseUid);
+      }
+
+      SyncService.cleanup();
+      await signOut(auth);
       setUser(null);
+      console.log("✅ Logged out");
     } catch (error) {
-      console.error("Logout error:", error);
+      console.error("❌ Logout error:", error);
     }
   };
 
-  return (
-    <AuthContext.Provider
-      value={{ user, isLoading, login, register, logout, refreshUser }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({ user, isLoading, login, register, logout, refreshUser }),
+    [user, isLoading]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => {
