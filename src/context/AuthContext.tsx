@@ -424,28 +424,18 @@ export function AuthProvider({
 
   const logout = async () => {
     try {
-      console.log("🔄 Starting logout...");
+      console.log("🚪 Logging out...");
 
-      // ✅ STEP 1: Final sync before logout (optional - if you want to save pending changes)
-      if (user) {
-        await SyncService.syncNow(user.firebaseUid);
-      }
-
-      // ✅ STEP 2: Cleanup sync service
+      // ✅ ADD: Cleanup SyncService BEFORE signing out
       SyncService.cleanup();
+      console.log("✅ SyncService cleaned up");
 
-      // ✅ STEP 3: Wait a moment for cleanup to complete
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // ✅ STEP 4: Sign out from Firebase
       await signOut(auth);
-
-      // ✅ STEP 5: Clear user state
       setUser(null);
-
       console.log("✅ Logged out");
     } catch (error) {
       console.error("❌ Logout error:", error);
+      throw error;
     }
   };
 

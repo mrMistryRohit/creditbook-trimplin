@@ -1,3 +1,5 @@
+// src/context/BusinessContext.tsx
+
 import React, {
   createContext,
   useCallback,
@@ -33,12 +35,21 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({
   );
   const [loading, setLoading] = useState(true);
 
-  // ✅ FIX: Use ref to track current business ID to prevent infinite loop
+  // ✅ Use ref to track current business ID to prevent infinite loop
   const currentBusinessIdRef = useRef<number | null>(null);
 
-  // ✅ FIX: Remove currentBusiness from dependencies
   const refreshBusinesses = useCallback(async () => {
-    if (!user?.id || typeof user.id !== "number") {
+    // ✅ ADD: Check if user exists
+    if (!user) {
+      console.log("⚠️ BusinessContext: No user, skipping business refresh");
+      setBusinesses([]);
+      setCurrentBusinessState(null);
+      currentBusinessIdRef.current = null;
+      setLoading(false);
+      return;
+    }
+
+    if (!user.id || typeof user.id !== "number") {
       console.log("⚠️ BusinessContext: Invalid user ID:", user?.id);
       setLoading(false);
       return;
@@ -49,14 +60,12 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({
       console.log("🔄 BusinessContext: Loading businesses for user:", user.id);
       const list = await getBusinessesByUser(user.id);
 
-      // ✅ ADD: Deduplicate businesses by firestore_id or id
+      // Deduplicate businesses by firestore_id or id
       const uniqueBusinesses = list.reduce((acc, business) => {
         const key = business.firestore_id || `local-${business.id}`;
-        // Only keep the business if we haven't seen this key before
         if (!acc.has(key)) {
           acc.set(key, business);
         } else {
-          // If duplicate found, keep the one with firestore_id (synced version)
           const existing = acc.get(key);
           if (business.firestore_id && !existing?.firestore_id) {
             acc.set(key, business);
@@ -117,18 +126,32 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user]); // ✅ CHANGED: Depend on entire user object
 
   const setCurrentBusiness = useCallback((business: Business) => {
     console.log("🔄 BusinessContext: Switching to business:", business.name);
     setCurrentBusinessState(business);
-    currentBusinessIdRef.current = business.id; // ✅ Update ref
+    currentBusinessIdRef.current = business.id;
     appEvents.emit("businessSwitched");
   }, []);
 
+  // ✅ ADD: Clear businesses on logout
   useEffect(() => {
-    refreshBusinesses();
+    if (!user) {
+      console.log("🚪 BusinessContext: User logged out, clearing businesses");
+      setBusinesses([]);
+      setCurrentBusinessState(null);
+      currentBusinessIdRef.current = null;
+      setLoading(false);
+      return; // Don't refresh if no user
+    }
 
+    // Only refresh if we have a user
+    refreshBusinesses();
+  }, [user, refreshBusinesses]);
+
+  // ✅ KEEP: Event listeners
+  useEffect(() => {
     const handler = () => {
       console.log("📣 BusinessContext: businessUpdated event received");
       refreshBusinesses();

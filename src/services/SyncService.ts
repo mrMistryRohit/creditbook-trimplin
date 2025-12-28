@@ -1129,9 +1129,6 @@ class SyncService {
     return data;
   }
 
-  /**
-   * ✅ UPDATED: More aggressive cleanup with shutdown flag
-   */
   cleanup(): void {
     console.log("🧹 Cleaning up SyncService");
 
@@ -1142,12 +1139,15 @@ class SyncService {
     this.stopPeriodicSync();
 
     // Unsubscribe from all real-time listeners
+    console.log(
+      `🔕 Unsubscribing from ${this.realtimeUnsubscribers.length} listeners`
+    );
     this.realtimeUnsubscribers.forEach((unsub) => {
       try {
         unsub();
-      } catch {
-        // ✅ FIX: Remove unused 'error' variable
+      } catch (error) {
         // Silently ignore errors during cleanup
+        console.log("⚠️ Error unsubscribing listener (expected after logout)");
       }
     });
     this.realtimeUnsubscribers = [];
