@@ -518,20 +518,60 @@ class SyncService {
         }
       }
 
-      // Deduplication for inventory
+      // ✅ FIXED: Inventory deduplication and update logic
       if (table === "inventory") {
+        console.log(`📦 Processing inventory: ${data.item_name}`);
+        console.log(`📸 photo_uri exists: ${!!data.photo_uri}`);
+
+        // Check if item already exists by firestore_id
         const existingInventory = await db.getFirstAsync<{ id: number }>(
           `SELECT id FROM inventory WHERE firestore_id = ?`,
           [firestoreId]
         );
 
         if (existingInventory) {
-          console.log(
-            `⚠️ Inventory item ${firestoreId} already exists, skipping`
+          console.log(`⚠️ Inventory item ${firestoreId} exists, updating...`);
+
+          // ✅ FIX: Update ALL fields including quantity and photo_uri
+          let sqliteBusinessId: number | null = null;
+          if (data.business_firestore_id) {
+            const business = await db.getFirstAsync<{ id: number }>(
+              `SELECT id FROM businesses WHERE firestore_id = ?`,
+              [data.business_firestore_id]
+            );
+            sqliteBusinessId = business?.id || null;
+          }
+
+          await db.runAsync(
+            `UPDATE inventory 
+       SET business_id = ?, item_name = ?, quantity = ?, unit = ?, 
+           mrp = ?, rate = ?, product_code = ?, tax_type = ?, tax_included = ?, 
+           photo_uri = ?, last_updated = ?, sync_status = 'synced'
+       WHERE id = ?`,
+            [
+              sqliteBusinessId || data.business_id || null,
+              data.item_name || data.name || "",
+              data.quantity || 0, // ✅ FIX: Update quantity
+              data.unit || "Nos",
+              data.mrp || 0,
+              data.rate || 0,
+              data.product_code || null,
+              data.tax_type || "No Tax",
+              data.tax_included || "Included",
+              data.photo_uri || null, // ✅ FIX: Update photo
+              data.last_updated || new Date().toISOString(),
+              existingInventory.id,
+            ]
           );
-          return;
+
+          console.log(
+            `✅ Updated inventory/${existingInventory.id} - ${data.item_name} (qty: ${data.quantity})`
+          );
+          this.emitUpdateEvent(table);
+          return; // ✅ IMPORTANT: Exit after update
         }
 
+        // If not found by firestore_id, check for duplicates by business_id + item_name
         let sqliteBusinessId: number | null = null;
         if (data.business_firestore_id) {
           const business = await db.getFirstAsync<{ id: number }>(
@@ -551,20 +591,37 @@ class SyncService {
         if (sqliteBusinessId) {
           const duplicate = await db.getFirstAsync<{ id: number }>(
             `SELECT id FROM inventory 
-           WHERE business_id = ? AND item_name = ?`,
+       WHERE business_id = ? AND item_name = ?`,
             [sqliteBusinessId, data.item_name || ""]
           );
 
           if (duplicate) {
+            // ✅ FIX: Link existing item to Firestore and update ALL fields
             await db.runAsync(
-              `UPDATE inventory SET firestore_id = ?, sync_status = 'synced' WHERE id = ?`,
-              [firestoreId, duplicate.id]
+              `UPDATE inventory 
+         SET firestore_id = ?, quantity = ?, unit = ?, mrp = ?, rate = ?, 
+             product_code = ?, tax_type = ?, tax_included = ?, photo_uri = ?, 
+             last_updated = ?, sync_status = 'synced'
+         WHERE id = ?`,
+              [
+                firestoreId,
+                data.quantity || 0, // ✅ FIX: Update quantity
+                data.unit || "Nos",
+                data.mrp || 0,
+                data.rate || 0,
+                data.product_code || null,
+                data.tax_type || "No Tax",
+                data.tax_included || "Included",
+                data.photo_uri || null, // ✅ FIX: Update photo
+                data.last_updated || new Date().toISOString(),
+                duplicate.id,
+              ]
             );
             console.log(
-              `✅ Linked existing inventory/${duplicate.id} (${data.item_name}) to Firestore/${firestoreId}`
+              `✅ Linked and updated existing inventory/${duplicate.id} (${data.item_name}) - qty: ${data.quantity}`
             );
             this.emitUpdateEvent(table);
-            return;
+            return; // ✅ IMPORTANT: Exit after update
           }
         }
       }

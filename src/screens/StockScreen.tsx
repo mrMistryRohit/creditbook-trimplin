@@ -19,11 +19,13 @@ import PrimaryButton from "../components/PrimaryButton";
 import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
 import { useBusiness } from "../context/BusinessContext";
+import db from "../database/db"; // ✅ ADD THIS
 import {
   getInventoryByBusiness,
   InventoryItem,
   updateInventoryQuantity,
 } from "../database/inventoryRepo";
+import SyncService from "../services/SyncService"; // ✅ ADD THIS
 import { appEvents } from "../utils/events";
 
 export default function StockScreen() {
@@ -38,6 +40,25 @@ export default function StockScreen() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ✅ ADD: Debug function
+  useEffect(() => {
+    const checkBusinesses = async () => {
+      if (!currentBusiness) return;
+
+      const businesses = await db.getAllAsync(
+        `SELECT id, name, firestore_id FROM businesses`,
+        []
+      );
+      console.log("📊 All businesses:", JSON.stringify(businesses, null, 2));
+      console.log(
+        "📊 Current business:",
+        JSON.stringify(currentBusiness, null, 2)
+      );
+    };
+
+    checkBusinesses();
+  }, [currentBusiness]);
 
   const loadData = useCallback(async () => {
     console.log("🔄 StockScreen loadData called");
@@ -56,6 +77,18 @@ export default function StockScreen() {
     setLoading(true);
 
     try {
+      // ✅ ADD: Check raw database
+      const allItems = await db.getAllAsync(
+        `SELECT id, item_name, firestore_id, business_id, 
+         CASE WHEN photo_uri IS NULL THEN 'null' 
+              WHEN length(photo_uri) > 50 THEN substr(photo_uri, 1, 50) || '...' 
+              ELSE photo_uri 
+         END as photo_preview 
+         FROM inventory`,
+        []
+      );
+      console.log("📊 ALL inventory in DB:", JSON.stringify(allItems, null, 2));
+
       const inventoryItems = await getInventoryByBusiness(currentBusiness.id);
       console.log(
         "✅ Loaded:",
@@ -63,6 +96,19 @@ export default function StockScreen() {
         "items for business:",
         currentBusiness.id
       );
+
+      // ✅ ADD: Log first item details
+      if (inventoryItems.length > 0) {
+        console.log("📸 First item:", inventoryItems[0].item_name);
+        console.log(
+          "📸 First item photo_uri length:",
+          inventoryItems[0].photo_uri?.length || 0
+        );
+        console.log(
+          "📸 First item photo_uri preview:",
+          inventoryItems[0].photo_uri?.substring(0, 50)
+        );
+      }
 
       // Deduplicate items by firestore_id or id
       const uniqueItems = inventoryItems.reduce((acc, item) => {
@@ -178,6 +224,21 @@ export default function StockScreen() {
     }
   };
 
+  // ✅ ADD: Force sync button
+  const handleForceSync = async () => {
+    console.log("🔄 Force syncing...");
+    if (user) {
+      try {
+        await SyncService.syncNow(user.firebaseUid);
+        Alert.alert("Success", "Sync completed!");
+        await loadData();
+      } catch (error) {
+        console.error("Sync error:", error);
+        Alert.alert("Error", "Sync failed");
+      }
+    }
+  };
+
   const renderItem = ({ item }: { item: InventoryItem }) => {
     const lowStock = item.quantity < 10;
     const outOfStock = item.quantity <= 0;
@@ -194,7 +255,11 @@ export default function StockScreen() {
             <Image
               source={{ uri: item.photo_uri }}
               style={styles.itemImage}
-              resizeMode="cover" // ✅ ADD: Ensures proper scaling
+              resizeMode="cover"
+              onError={(error) => {
+                console.error("❌ Image load error:", error.nativeEvent.error);
+                console.log("Photo URI length:", item.photo_uri?.length);
+              }}
             />
           ) : (
             <View style={[styles.itemImage, styles.placeholderImage]}>
@@ -310,6 +375,10 @@ export default function StockScreen() {
             <Text style={styles.title}>Stock Management</Text>
             <Text style={styles.subtitle}>{currentBusiness?.name}</Text>
           </View>
+          {/* ✅ ADD: Debug sync button */}
+          <TouchableOpacity onPress={handleForceSync} style={styles.syncButton}>
+            <Ionicons name="sync" size={20} color={colors.accent} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.searchContainer}>
@@ -362,6 +431,11 @@ const styles = StyleSheet.create({
   headerContent: {
     flex: 1,
   },
+  // ✅ ADD: Sync button style
+  syncButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
   title: {
     color: colors.text,
     fontSize: 24,
@@ -408,7 +482,7 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 8,
     marginRight: 12,
-    backgroundColor: colors.card, // ✅ ADD: Background fallback
+    backgroundColor: colors.card,
   },
   placeholderImage: {
     backgroundColor: colors.card,
