@@ -1,3 +1,4 @@
+// src/database/billRepo.ts
 import SyncService from "../services/SyncService"; // ✅ ADD THIS
 import db from "./db";
 import { updateInventoryQuantity } from "./inventoryRepo"; // ✅ ADD THIS
@@ -152,9 +153,8 @@ export async function createBillWithTransaction(options: {
     0
   );
 
-  // Format date as Indian locale: "20/12/2025, 10:30:00 pm"
-  const now = new Date();
-  const formattedDate = now.toLocaleString("en-IN");
+  const [year, month, day] = options.billDate.split("-");
+  const formattedDate = `${day}/${month}/${year}`;
 
   console.log("💰 Adding transaction:", {
     userId: options.userId,

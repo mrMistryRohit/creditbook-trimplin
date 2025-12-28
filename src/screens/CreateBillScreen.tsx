@@ -1,3 +1,4 @@
+import DateTimePicker from "@react-native-community/datetimepicker"; // ✅ ADD THIS
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -40,7 +41,8 @@ export default function CreateBillScreen() {
 
   const [customerName, setCustomerName] = useState("");
   const [billNumber, setBillNumber] = useState("");
-  const [billDate] = useState(new Date().toISOString().slice(0, 10));
+  const [billDate, setBillDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<ItemForm[]>([]);
 
@@ -52,7 +54,11 @@ export default function CreateBillScreen() {
       const customer = await getCustomerById(Number(customerId));
       if (customer) setCustomerName(customer.name);
 
-      const nextBillNo = await getNextBillNumber(currentBusiness.id);
+      const nextBillNo = await getNextBillNumber(
+        currentBusiness.id,
+        Number(customerId)
+      );
+
       setBillNumber(nextBillNo);
     };
     load();
@@ -88,6 +94,12 @@ export default function CreateBillScreen() {
       removeDraftItem(index);
     }
   };
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(false); // Close picker on Android
+    if (selectedDate) {
+      setBillDate(selectedDate);
+    }
+  };
 
   const handleSave = async () => {
     if (!user || !currentBusiness || !customerId) {
@@ -109,7 +121,7 @@ export default function CreateBillScreen() {
         businessId: currentBusiness.id,
         customerId: Number(customerId),
         billNumber: billNumber.trim(),
-        billDate,
+        billDate: billDate.toISOString().slice(0, 10),
         notes,
         items: items.map((it) => ({
           inventoryId: it.inventoryId,
@@ -172,9 +184,7 @@ export default function CreateBillScreen() {
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.customerName}>
-            {customerName || "Customer"}
-          </Text>
+          <Text style={styles.customerName}>{customerName || "Customer"}</Text>
           <View style={styles.headerRow}>
             <View>
               <Text style={styles.headerLabel}>Bill Number</Text>
@@ -185,10 +195,22 @@ export default function CreateBillScreen() {
                 placeholderTextColor="rgba(255,255,255,0.5)"
               />
             </View>
-            <View>
+            <TouchableOpacity onPress={() => setShowDatePicker(true)}>
               <Text style={styles.headerLabel}>Bill Date</Text>
-              <Text style={styles.billDate}>{billDate}</Text>
-            </View>
+              <Text style={styles.billDate}>
+                {billDate.toLocaleDateString("en-IN")}
+              </Text>
+            </TouchableOpacity>
+
+            {/* ✅ ADD: Date Picker Modal */}
+            {showDatePicker && (
+              <DateTimePicker
+                value={billDate}
+                mode="date"
+                display="default"
+                onChange={handleDateChange}
+              />
+            )}
           </View>
         </View>
 
