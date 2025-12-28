@@ -33,14 +33,19 @@ class SyncService {
   private realtimeUnsubscribers: (() => void)[] = [];
   private isSyncing = false;
   private isOnline = false;
+  private isShuttingDown = false; // ✅ Shutdown flag
 
   async initializeSync(userId: string): Promise<void> {
     console.log("🔄 Initializing SyncService for user:", userId);
+
+    // ✅ Reset shutdown flag on initialization
+    this.isShuttingDown = false;
+
     this.config = {
       userId,
       enabled: true,
       autoSync: true,
-      syncInterval: 50000,
+      syncInterval: 10000, // 10 seconds for faster sync
     };
 
     this.setupNetworkListener();
@@ -56,7 +61,12 @@ class SyncService {
       this.isOnline = state.isConnected ?? false;
       console.log(`📡 Network status: ${this.isOnline ? "Online" : "Offline"}`);
 
-      if (!wasOnline && this.isOnline && this.config?.userId) {
+      if (
+        !wasOnline &&
+        this.isOnline &&
+        this.config?.userId &&
+        !this.isShuttingDown
+      ) {
         console.log("📡 Back online - triggering sync");
         this.syncNow(this.config.userId);
       }
@@ -70,7 +80,7 @@ class SyncService {
 
     if (this.config?.autoSync) {
       this.syncTimer = setInterval(() => {
-        if (this.config?.userId && this.isOnline) {
+        if (this.config?.userId && this.isOnline && !this.isShuttingDown) {
           this.syncNow(this.config.userId);
         }
       }, this.config.syncInterval);
@@ -85,45 +95,80 @@ class SyncService {
   }
 
   /**
-   * ✅ Strip ALL Firestore internal metadata fields
+   * Strip Firestore internal metadata fields
    */
   private stripFirestoreMetadata(data: any): any {
     if (data === null || data === undefined) return data;
 
-    // Handle arrays
     if (Array.isArray(data)) {
       return data.map((item) => this.stripFirestoreMetadata(item));
     }
 
-    // Handle objects
     if (typeof data === "object") {
       const cleaned: any = {};
 
       for (const [key, value] of Object.entries(data)) {
-        // ✅ Skip any field that starts with underscore (Firestore internal)
         if (key.startsWith("_")) {
           console.log(`🧹 Stripped Firestore metadata field: ${key}`);
           continue;
         }
 
-        // ✅ Skip Firestore internal fields
         if (key === "firestore" || key === "converter" || key === "key") {
           continue;
         }
 
-        // Recursively clean nested objects
         cleaned[key] = this.stripFirestoreMetadata(value);
       }
 
       return cleaned;
     }
 
-    // Return primitives as-is
     return data;
   }
 
+  /**
+   * Emit appropriate event based on table name to refresh UI
+   */
+  private emitUpdateEvent(table: string): void {
+    if (this.isShuttingDown) return; // ✅ Don't emit events during shutdown
+
+    switch (table) {
+      case "businesses":
+        appEvents.emit("businessUpdated");
+        console.log("📣 Event emitted: businessUpdated");
+        break;
+      case "customers":
+        appEvents.emit("customerUpdated");
+        console.log("📣 Event emitted: customerUpdated");
+        break;
+      case "suppliers":
+        appEvents.emit("supplierUpdated");
+        console.log("📣 Event emitted: supplierUpdated");
+        break;
+      case "transactions":
+        appEvents.emit("transactionUpdated");
+        console.log("📣 Event emitted: transactionUpdated");
+        break;
+      case "supplier_transactions":
+        appEvents.emit("supplierTransactionUpdated");
+        console.log("📣 Event emitted: supplierTransactionUpdated");
+        break;
+      case "inventory":
+        appEvents.emit("inventoryUpdated");
+        console.log("📣 Event emitted: inventoryUpdated");
+        break;
+      case "bills":
+      case "bill_items":
+        appEvents.emit("billUpdated");
+        console.log("📣 Event emitted: billUpdated");
+        break;
+      default:
+        console.log(`⚠️ No event mapping for table: ${table}`);
+    }
+  }
+
   private async setupRealtimeListeners(): Promise<void> {
-    if (!this.config?.userId) return;
+    if (!this.config?.userId || this.isShuttingDown) return;
     const userId = this.config.userId;
 
     const tables = [
@@ -141,6 +186,8 @@ class SyncService {
     this.realtimeUnsubscribers = [];
 
     for (const table of tables) {
+      if (this.isShuttingDown) return; // ✅ Stop if shutting down
+
       const q = query(
         collection(firestore, table),
         where("user_id", "==", userId)
@@ -149,12 +196,14 @@ class SyncService {
       const unsubscribe = onSnapshot(
         q,
         (snapshot) => {
+          if (this.isShuttingDown) return; // ✅ Ignore updates during shutdown
+
           snapshot.docChanges().forEach((change) => {
+            if (this.isShuttingDown) return;
+
             if (change.type === "added" || change.type === "modified") {
-              // ✅ Clean the data before processing
               const rawData = change.doc.data();
               const cleanedData = this.stripFirestoreMetadata(rawData);
-
               this.downloadDocument(table, change.doc.id, cleanedData);
             } else if (change.type === "removed") {
               this.deleteLocalDocument(table, change.doc.id);
@@ -162,7 +211,10 @@ class SyncService {
           });
         },
         (error) => {
-          console.error(`❌ Realtime listener error for ${table}:`, error);
+          // ✅ Suppress permission errors during shutdown
+          if (!this.isShuttingDown) {
+            console.error(`❌ Realtime listener error for ${table}:`, error);
+          }
         }
       );
 
@@ -173,6 +225,8 @@ class SyncService {
   }
 
   async syncNow(userId: string): Promise<void> {
+    if (this.isShuttingDown) return; // ✅ Don't sync during shutdown
+
     if (!this.isOnline) {
       console.log("⚠️ Cannot sync - offline");
       return;
@@ -189,18 +243,24 @@ class SyncService {
     try {
       await this.uploadPendingChanges(userId);
       await this.downloadNewChanges(userId);
-      await updateLastSyncTime();
-      console.log("✅ Sync completed successfully");
 
-      appEvents.emit("syncCompleted");
+      if (!this.isShuttingDown) {
+        await updateLastSyncTime();
+        console.log("✅ Sync completed successfully");
+        appEvents.emit("syncCompleted");
+      }
     } catch (error) {
-      console.error("❌ Sync failed:", error);
+      if (!this.isShuttingDown) {
+        console.error("❌ Sync failed:", error);
+      }
     } finally {
       this.isSyncing = false;
     }
   }
 
   private async uploadPendingChanges(userId: string): Promise<void> {
+    if (this.isShuttingDown) return; // ✅ Stop if shutting down
+
     console.log("⬆️ Uploading pending changes...");
 
     const tables = [
@@ -215,6 +275,8 @@ class SyncService {
     ];
 
     for (const table of tables) {
+      if (this.isShuttingDown) return; // ✅ Stop if shutting down
+
       try {
         const pendingItems = await getPendingItems(table);
         if (pendingItems.length === 0) continue;
@@ -222,8 +284,10 @@ class SyncService {
         console.log(`⬆️ Uploading ${pendingItems.length} items from ${table}`);
 
         for (const item of pendingItems) {
+          if (this.isShuttingDown) return; // ✅ Stop if shutting down
+
           try {
-            const firestoreData = await this.prepareForFirestore(item, userId); // ✅ ADD AWAIT
+            const firestoreData = await this.prepareForFirestore(item, userId);
             const docId =
               item.firestore_id || doc(collection(firestore, table)).id;
 
@@ -236,11 +300,15 @@ class SyncService {
               `✅ Uploaded ${table}/${item.id} to Firestore as ${docId}`
             );
           } catch (error) {
-            console.error(`❌ Failed to upload ${table}/${item.id}:`, error);
+            if (!this.isShuttingDown) {
+              console.error(`❌ Failed to upload ${table}/${item.id}:`, error);
+            }
           }
         }
       } catch (error) {
-        console.error(`❌ Error uploading from ${table}:`, error);
+        if (!this.isShuttingDown) {
+          console.error(`❌ Error uploading from ${table}:`, error);
+        }
       }
     }
 
@@ -248,6 +316,8 @@ class SyncService {
   }
 
   private async downloadNewChanges(userId: string): Promise<void> {
+    if (this.isShuttingDown) return; // ✅ Stop if shutting down
+
     console.log("⬇️ Downloading new changes...");
 
     const tables = [
@@ -265,6 +335,8 @@ class SyncService {
     const lastSyncDate = lastSync ? new Date(lastSync) : new Date(0);
 
     for (const table of tables) {
+      if (this.isShuttingDown) return; // ✅ Stop if shutting down
+
       try {
         const q = query(
           collection(firestore, table),
@@ -278,36 +350,39 @@ class SyncService {
         console.log(`⬇️ Downloading ${snapshot.size} items to ${table}`);
 
         for (const docSnap of snapshot.docs) {
-          // ✅ CRITICAL: Clean the data BEFORE passing to downloadDocument
+          if (this.isShuttingDown) return; // ✅ Stop if shutting down
+
           const rawData = docSnap.data();
           const cleanedData = this.stripFirestoreMetadata(rawData);
 
           await this.downloadDocument(table, docSnap.id, cleanedData);
         }
       } catch (error) {
-        console.error(`❌ Error downloading ${table}:`, error);
+        // ✅ Suppress permission errors during shutdown
+        if (!this.isShuttingDown) {
+          console.error(`❌ Error downloading ${table}:`, error);
+        }
       }
     }
 
-    console.log("✅ Download complete");
+    if (!this.isShuttingDown) {
+      console.log("✅ Download complete");
+    }
   }
 
-  // HELPER METHOD
-  private tableHasSyncColumns(table: string): boolean {
-    // bill_items and inventory don't have firestore_id/sync_status
-    return !["bill_items"].includes(table);
-  }
-
-  // ✅ MODIFY downloadDocument METHOD
+  /**
+   * Download a single document from Firestore to SQLite
+   */
   private async downloadDocument(
     table: string,
     firestoreId: string,
     data: any
   ): Promise<void> {
+    if (this.isShuttingDown) return;
+
     try {
-      // ✅ For bill_items, use bill_id to check for existing records
+      // Special handling for bill_items
       if (table === "bill_items") {
-        // Map bill_firestore_id to local bill_id
         let sqliteBillId: number | null = null;
         if (data.bill_firestore_id) {
           const bill = await db.getFirstAsync<{ id: number }>(
@@ -323,10 +398,9 @@ class SyncService {
           sqliteBillId = bill.id;
         }
 
-        // Check if already exists
         const existing = await db.getFirstAsync<{ id: number }>(
           `SELECT id FROM bill_items 
-     WHERE bill_id = ? AND item_name = ? AND quantity = ? AND rate = ? AND total = ?`,
+         WHERE bill_id = ? AND item_name = ? AND quantity = ? AND rate = ? AND total = ?`,
           [
             sqliteBillId || data.bill_id,
             data.item_name || data.name || "",
@@ -343,7 +417,6 @@ class SyncService {
           return;
         }
 
-        // ✅ CRITICAL: Explicitly build ONLY the columns that exist in SQLite
         const sqliteData = await this.prepareForSQLiteComplete(
           table,
           data,
@@ -354,7 +427,6 @@ class SyncService {
           null
         );
 
-        // ✅ HARDCODE the exact columns for bill_items
         const columns = [
           "bill_id",
           "inventory_id",
@@ -367,7 +439,6 @@ class SyncService {
         ];
         const placeholders = columns.map(() => "?").join(", ");
 
-        // ✅ Extract values in the SAME ORDER as columns
         const values = [
           sqliteData.bill_id,
           sqliteData.inventory_id,
@@ -387,17 +458,18 @@ class SyncService {
         );
 
         console.log(`✅ Inserted bill_items for bill_id ${sqliteBillId}`);
+        this.emitUpdateEvent(table);
         return;
       }
 
-      // ✅ Deduplication for supplier_transactions
+      // Deduplication for supplier_transactions
       if (table === "supplier_transactions") {
-        const existing = await db.getFirstAsync<{ id: number }>(
+        const existingSupplierTx = await db.getFirstAsync<{ id: number }>(
           `SELECT id FROM supplier_transactions WHERE firestore_id = ?`,
           [firestoreId]
         );
 
-        if (existing) {
+        if (existingSupplierTx) {
           console.log(
             `⚠️ Supplier transaction ${firestoreId} already exists, skipping`
           );
@@ -440,19 +512,20 @@ class SyncService {
             console.log(
               `✅ Linked existing supplier_transaction/${duplicate.id} to Firestore/${firestoreId}`
             );
+            this.emitUpdateEvent(table);
             return;
           }
         }
       }
 
-      // ✅ Deduplication for inventory
+      // Deduplication for inventory
       if (table === "inventory") {
-        const existing = await db.getFirstAsync<{ id: number }>(
+        const existingInventory = await db.getFirstAsync<{ id: number }>(
           `SELECT id FROM inventory WHERE firestore_id = ?`,
           [firestoreId]
         );
 
-        if (existing) {
+        if (existingInventory) {
           console.log(
             `⚠️ Inventory item ${firestoreId} already exists, skipping`
           );
@@ -490,10 +563,59 @@ class SyncService {
             console.log(
               `✅ Linked existing inventory/${duplicate.id} (${data.item_name}) to Firestore/${firestoreId}`
             );
+            this.emitUpdateEvent(table);
             return;
           }
         }
-        // Continue to normal insert for inventory
+      }
+
+      // ✅ Deduplication for suppliers - MOVED BEFORE "existing" declaration
+      if (table === "suppliers") {
+        const existingSupplier = await db.getFirstAsync<{ id: number }>(
+          `SELECT id FROM suppliers WHERE firestore_id = ?`,
+          [firestoreId]
+        );
+
+        if (existingSupplier) {
+          console.log(`⚠️ Supplier ${firestoreId} already exists, skipping`);
+          return;
+        }
+
+        let sqliteBusinessId: number | null = null;
+        if (data.business_firestore_id) {
+          const business = await db.getFirstAsync<{ id: number }>(
+            `SELECT id FROM businesses WHERE firestore_id = ?`,
+            [data.business_firestore_id]
+          );
+
+          if (!business) {
+            console.warn(
+              `⚠️ Business not found for supplier ${firestoreId}, skipping`
+            );
+            return;
+          }
+          sqliteBusinessId = business.id;
+        }
+
+        if (sqliteBusinessId) {
+          const duplicate = await db.getFirstAsync<{ id: number }>(
+            `SELECT id FROM suppliers 
+           WHERE business_id = ? AND name = ?`,
+            [sqliteBusinessId, data.name || ""]
+          );
+
+          if (duplicate) {
+            await db.runAsync(
+              `UPDATE suppliers SET firestore_id = ?, sync_status = 'synced' WHERE id = ?`,
+              [firestoreId, duplicate.id]
+            );
+            console.log(
+              `✅ Linked existing supplier/${duplicate.id} (${data.name}) to Firestore/${firestoreId}`
+            );
+            this.emitUpdateEvent(table);
+            return;
+          }
+        }
       }
 
       // ✅ NORMAL FLOW FOR ALL OTHER TABLES
@@ -524,6 +646,7 @@ class SyncService {
           console.log(
             `✅ Linked existing ${table}/${duplicateBusiness.id} to Firestore/${firestoreId}`
           );
+          this.emitUpdateEvent(table);
           return;
         }
       }
@@ -563,6 +686,7 @@ class SyncService {
           console.log(
             `✅ Linked existing ${table}/${duplicateCustomer.id} to Firestore/${firestoreId}`
           );
+          this.emitUpdateEvent(table);
           return;
         }
       }
@@ -625,21 +749,20 @@ class SyncService {
           .map((key) => `${key} = ?`)
           .join(", ");
 
-        const values = [
-          ...Object.keys(sqliteData)
-            .filter((k) => k !== "id")
-            .map((k) => sqliteData[k]),
-          existing.id,
-        ];
+        const values = Object.keys(sqliteData)
+          .filter((k) => k !== "id")
+          .map((k) => sqliteData[k]);
 
-        await db.runAsync(
-          `UPDATE ${table} SET ${setClause} WHERE id = ?`,
-          values as any[]
-        );
+        // ✅ FIX: Type assertion for values array
+        await db.runAsync(`UPDATE ${table} SET ${setClause} WHERE id = ?`, [
+          ...values,
+          existing.id,
+        ] as any[]);
 
         console.log(
           `✅ Updated ${table}/${existing.id} from Firestore/${firestoreId}`
         );
+        this.emitUpdateEvent(table);
       } else {
         // Insert new record
         const columns = Object.keys(sqliteData).join(", ");
@@ -654,9 +777,12 @@ class SyncService {
         );
 
         console.log(`✅ Inserted ${table} from Firestore/${firestoreId}`);
+        this.emitUpdateEvent(table);
       }
     } catch (error) {
-      console.error(`❌ Error downloading ${table}/${firestoreId}:`, error);
+      if (!this.isShuttingDown) {
+        console.error(`❌ Error downloading ${table}/${firestoreId}:`, error);
+      }
     }
   }
 
@@ -766,7 +892,6 @@ class SyncService {
         };
 
       case "inventory":
-        // ✅ NO user_id column in inventory table!
         return {
           firestore_id: firestoreId,
           sync_status: "synced",
@@ -799,7 +924,6 @@ class SyncService {
         };
 
       case "bill_items": {
-        // Map bill_firestore_id back to local bill_id
         let sqliteBillId: number | null = null;
         if (data.bill_firestore_id) {
           const bill = await db.getFirstAsync<{ id: number }>(
@@ -815,7 +939,6 @@ class SyncService {
           sqliteBillId = bill.id;
         }
 
-        // Map inventory_firestore_id back to local inventory_id
         let sqliteInventoryId: number | null = null;
         if (data.inventory_firestore_id) {
           const inventory = await db.getFirstAsync<{ id: number }>(
@@ -827,7 +950,6 @@ class SyncService {
           }
         }
 
-        // ✅ Return clean object directly - NO FILTERING NEEDED
         return {
           bill_id: sqliteBillId || data.bill_id || null,
           inventory_id: sqliteInventoryId || data.inventory_id || null,
@@ -855,13 +977,18 @@ class SyncService {
     table: string,
     firestoreId: string
   ): Promise<void> {
+    if (this.isShuttingDown) return; // ✅ Stop if shutting down
+
     try {
       await db.runAsync(`DELETE FROM ${table} WHERE firestore_id = ?`, [
         firestoreId,
       ]);
       console.log(`✅ Deleted ${table} with firestore_id ${firestoreId}`);
+      this.emitUpdateEvent(table);
     } catch (error) {
-      console.error(`❌ Error deleting ${table}/${firestoreId}:`, error);
+      if (!this.isShuttingDown) {
+        console.error(`❌ Error deleting ${table}/${firestoreId}:`, error);
+      }
     }
   }
 
@@ -878,7 +1005,6 @@ class SyncService {
         continue;
       }
 
-      // ✅ For bill_items, map bill_id to bill's firestore_id
       if (key === "bill_id" && value) {
         const bill = await db.getFirstAsync<{ firestore_id: string }>(
           `SELECT firestore_id FROM bills WHERE id = ?`,
@@ -887,10 +1013,9 @@ class SyncService {
         if (bill?.firestore_id) {
           data.bill_firestore_id = bill.firestore_id;
         }
-        continue; // Skip raw bill_id
+        continue;
       }
 
-      // ✅ For bill_items, map inventory_id to inventory's firestore_id
       if (key === "inventory_id" && value) {
         const inventory = await db.getFirstAsync<{ firestore_id: string }>(
           `SELECT firestore_id FROM inventory WHERE id = ?`,
@@ -899,7 +1024,7 @@ class SyncService {
         if (inventory?.firestore_id) {
           data.inventory_firestore_id = inventory.firestore_id;
         }
-        continue; // Skip raw inventory_id
+        continue;
       }
 
       if (key === "business_id" && value) {
@@ -947,17 +1072,48 @@ class SyncService {
     return data;
   }
 
+  /**
+   * ✅ UPDATED: More aggressive cleanup with shutdown flag
+   */
   cleanup(): void {
     console.log("🧹 Cleaning up SyncService");
+
+    // ✅ Set shutdown flag FIRST
+    this.isShuttingDown = true;
+
+    // Stop periodic sync
     this.stopPeriodicSync();
-    this.realtimeUnsubscribers.forEach((unsub) => unsub());
+
+    // Unsubscribe from all real-time listeners
+    this.realtimeUnsubscribers.forEach((unsub) => {
+      try {
+        unsub();
+      } catch {
+        // ✅ FIX: Remove unused 'error' variable
+        // Silently ignore errors during cleanup
+      }
+    });
     this.realtimeUnsubscribers = [];
+
+    // Clear config
     this.config = null;
     this.isSyncing = false;
+
     console.log("✅ SyncService cleaned up");
   }
 
+  /**
+   * ✅ NEW: Reset service for new user
+   */
+  reset(): void {
+    this.cleanup();
+    // Reset shutdown flag for next login
+    this.isShuttingDown = false;
+  }
+
   async queueForSync(table: string, id: number): Promise<void> {
+    if (this.isShuttingDown) return; // ✅ Don't queue during shutdown
+
     await markAsPendingSync(table, id);
     console.log(`📝 Queued ${table}/${id} for sync`);
 

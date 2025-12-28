@@ -1,5 +1,5 @@
 // src/database/supplierRepo.ts
-import SyncService from "../services/SyncService"; // ✅ ADD THIS
+import SyncService from "../services/SyncService";
 import db from "./db";
 
 export interface Supplier {
@@ -11,9 +11,9 @@ export interface Supplier {
   balance: number;
   last_activity?: string | null;
   archived?: number;
-  firestore_id?: string; // ✅ ADD THIS
-  sync_status?: string; // ✅ ADD THIS
-  updated_at?: string; // ✅ ADD THIS
+  firestore_id?: string;
+  sync_status?: string;
+  updated_at?: string;
 }
 
 export const getSuppliersByUser = async (
@@ -41,44 +41,75 @@ export const getSupplierById = async (
   );
 };
 
+/**
+ * ✅ FIXED: Add duplicate checking
+ */
 export const addSupplier = async (
   userId: number,
   businessId: number,
   name: string,
   phone?: string
 ): Promise<number> => {
-  // ✅ CHANGED: Return number (supplier ID)
-  const now = "Today";
+  // ✅ CRITICAL: Check for duplicate supplier
+  const existing = await db.getFirstAsync<{ id: number }>(
+    `SELECT id FROM suppliers 
+     WHERE business_id = ? AND name = ? AND user_id = ? AND (archived = 0 OR archived IS NULL)`,
+    [businessId, name, userId]
+  );
 
-  // ✅ UPDATED: Add sync fields
+  if (existing) {
+    console.warn(
+      `⚠️ Supplier "${name}" already exists in business ${businessId}`
+    );
+    throw new Error(`Supplier "${name}" already exists`);
+  }
+
+  const now = new Date().toISOString();
+
   const result = await db.runAsync(
     `INSERT INTO suppliers (user_id, business_id, name, phone, balance, last_activity, archived, sync_status, updated_at) 
      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    [userId, businessId, name, phone || "", 0, now, 0, new Date().toISOString()]
+    [userId, businessId, name, phone || null, 0, now, 0, now]
   );
 
-  // ✅ ADD: Queue for sync
   const supplierId = result.lastInsertRowId;
   await SyncService.queueForSync("suppliers", supplierId);
 
-  return supplierId; // ✅ ADD: Return the ID
+  console.log(`✅ Added supplier: ${name} (ID: ${supplierId})`);
+  return supplierId;
 };
 
+/**
+ * ✅ FIXED: Add duplicate checking during update
+ */
 export const updateSupplier = async (
   userId: number,
   supplierId: number,
   name: string,
   phone?: string
 ): Promise<void> => {
-  // ✅ UPDATED: Add sync fields
+  // ✅ Check if another supplier with same name exists
+  const existing = await db.getFirstAsync<{ id: number }>(
+    `SELECT id FROM suppliers 
+     WHERE business_id = (SELECT business_id FROM suppliers WHERE id = ?) 
+     AND name = ? AND user_id = ? AND id != ?`,
+    [supplierId, name, userId, supplierId]
+  );
+
+  if (existing) {
+    console.warn(`⚠️ Another supplier with name "${name}" already exists`);
+    throw new Error(`Supplier "${name}" already exists`);
+  }
+
+  const now = new Date().toISOString();
+
   await db.runAsync(
     `UPDATE suppliers 
      SET name = ?, phone = ?, sync_status = 'pending', updated_at = ? 
      WHERE id = ? AND user_id = ?`,
-    [name, phone || "", new Date().toISOString(), supplierId, userId]
+    [name, phone || null, now, supplierId, userId]
   );
 
-  // ✅ ADD: Queue for sync
   await SyncService.queueForSync("suppliers", supplierId);
 };
 
@@ -86,15 +117,15 @@ export const archiveSupplier = async (
   userId: number,
   supplierId: number
 ): Promise<void> => {
-  // ✅ UPDATED: Add sync fields
+  const now = new Date().toISOString();
+
   await db.runAsync(
     `UPDATE suppliers 
      SET archived = 1, sync_status = 'pending', updated_at = ? 
      WHERE id = ? AND user_id = ?`,
-    [new Date().toISOString(), supplierId, userId]
+    [now, supplierId, userId]
   );
 
-  // ✅ ADD: Queue for sync
   await SyncService.queueForSync("suppliers", supplierId);
 };
 
@@ -102,15 +133,15 @@ export const unarchiveSupplier = async (
   userId: number,
   supplierId: number
 ): Promise<void> => {
-  // ✅ UPDATED: Add sync fields
+  const now = new Date().toISOString();
+
   await db.runAsync(
     `UPDATE suppliers 
      SET archived = 0, sync_status = 'pending', updated_at = ? 
      WHERE id = ? AND user_id = ?`,
-    [new Date().toISOString(), supplierId, userId]
+    [now, supplierId, userId]
   );
 
-  // ✅ ADD: Queue for sync
   await SyncService.queueForSync("suppliers", supplierId);
 };
 
@@ -130,32 +161,25 @@ export const deleteSupplier = async (
     userId,
   ]);
 
-  // ⚠️ NOTE: Actual deletion - not synced to Firestore
-  // If you want to sync deletions, use archive instead or add a "deleted" flag:
-  // await db.runAsync(
-  //   `UPDATE suppliers SET deleted = 1, sync_status = 'pending', updated_at = ? WHERE id = ? AND user_id = ?`,
-  //   [new Date().toISOString(), supplierId, userId]
-  // );
-  // await SyncService.queueForSync("suppliers", supplierId);
+  // NOTE: Physical deletion - not synced to Firestore
+  // Consider using soft delete (archive) instead for sync support
 };
 
-// ✅ ADD: Helper function to update supplier balance (used by transactions)
+/**
+ * ✅ Helper function to update supplier balance
+ */
 export const updateSupplierBalance = async (
   supplierId: number,
   newBalance: number
 ): Promise<void> => {
+  const now = new Date().toISOString();
+
   await db.runAsync(
     `UPDATE suppliers 
      SET balance = ?, last_activity = ?, sync_status = 'pending', updated_at = ? 
      WHERE id = ?`,
-    [
-      newBalance,
-      new Date().toLocaleDateString("en-IN"),
-      new Date().toISOString(),
-      supplierId,
-    ]
+    [newBalance, now, now, supplierId]
   );
 
-  // ✅ ADD: Queue for sync
   await SyncService.queueForSync("suppliers", supplierId);
 };

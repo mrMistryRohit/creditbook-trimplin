@@ -192,7 +192,8 @@ export function AuthProvider({
                 shop_name: sqliteUser.shop_name || undefined,
               });
 
-              // ✅ Initialize sync service - it will download businesses from Firestore
+              // ✅ CHANGED: Use reset() instead of just initializeSync()
+              SyncService.reset(); // Clears shutdown flag
               await SyncService.initializeSync(firebaseUser.uid);
             }
           }
@@ -423,13 +424,25 @@ export function AuthProvider({
 
   const logout = async () => {
     try {
+      console.log("🔄 Starting logout...");
+
+      // ✅ STEP 1: Final sync before logout (optional - if you want to save pending changes)
       if (user) {
         await SyncService.syncNow(user.firebaseUid);
       }
 
+      // ✅ STEP 2: Cleanup sync service
       SyncService.cleanup();
+
+      // ✅ STEP 3: Wait a moment for cleanup to complete
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // ✅ STEP 4: Sign out from Firebase
       await signOut(auth);
+
+      // ✅ STEP 5: Clear user state
       setUser(null);
+
       console.log("✅ Logged out");
     } catch (error) {
       console.error("❌ Logout error:", error);
