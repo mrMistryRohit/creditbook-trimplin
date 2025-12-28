@@ -67,9 +67,90 @@ eas build --platform android --profile preview
 creditbook-trimplin
 ├─ 📁.expo
 ├─ 📁.vscode
-│  ├─ 📁.react
 │  ├─ 📄extensions.json
 │  └─ 📄settings.json
+├─ 📁android
+│  ├─ 📁app
+│  │  ├─ 📁src
+│  │  │  ├─ 📁debug
+│  │  │  │  └─ 📄AndroidManifest.xml
+│  │  │  ├─ 📁debugOptimized
+│  │  │  │  └─ 📄AndroidManifest.xml
+│  │  │  └─ 📁main
+│  │  │     ├─ 📁java
+│  │  │     │  └─ 📁com
+│  │  │     │     └─ 📁rohit002002
+│  │  │     │        └─ 📁creditbooktrimplin
+│  │  │     │           ├─ 📄MainActivity.kt
+│  │  │     │           └─ 📄MainApplication.kt
+│  │  │     ├─ 📁res
+│  │  │     │  ├─ 📁drawable
+│  │  │     │  │  ├─ 📄ic_launcher_background.xml
+│  │  │     │  │  └─ 📄rn_edit_text_material.xml
+│  │  │     │  ├─ 📁drawable-hdpi
+│  │  │     │  │  └─ 📄splashscreen_logo.png
+│  │  │     │  ├─ 📁drawable-mdpi
+│  │  │     │  │  └─ 📄splashscreen_logo.png
+│  │  │     │  ├─ 📁drawable-xhdpi
+│  │  │     │  │  └─ 📄splashscreen_logo.png
+│  │  │     │  ├─ 📁drawable-xxhdpi
+│  │  │     │  │  └─ 📄splashscreen_logo.png
+│  │  │     │  ├─ 📁drawable-xxxhdpi
+│  │  │     │  │  └─ 📄splashscreen_logo.png
+│  │  │     │  ├─ 📁mipmap-anydpi-v26
+│  │  │     │  │  ├─ 📄ic_launcher.xml
+│  │  │     │  │  └─ 📄ic_launcher_round.xml
+│  │  │     │  ├─ 📁mipmap-hdpi
+│  │  │     │  │  ├─ 📄ic_launcher.webp
+│  │  │     │  │  ├─ 📄ic_launcher_background.webp
+│  │  │     │  │  ├─ 📄ic_launcher_foreground.webp
+│  │  │     │  │  ├─ 📄ic_launcher_monochrome.webp
+│  │  │     │  │  └─ 📄ic_launcher_round.webp
+│  │  │     │  ├─ 📁mipmap-mdpi
+│  │  │     │  │  ├─ 📄ic_launcher.webp
+│  │  │     │  │  ├─ 📄ic_launcher_background.webp
+│  │  │     │  │  ├─ 📄ic_launcher_foreground.webp
+│  │  │     │  │  ├─ 📄ic_launcher_monochrome.webp
+│  │  │     │  │  └─ 📄ic_launcher_round.webp
+│  │  │     │  ├─ 📁mipmap-xhdpi
+│  │  │     │  │  ├─ 📄ic_launcher.webp
+│  │  │     │  │  ├─ 📄ic_launcher_background.webp
+│  │  │     │  │  ├─ 📄ic_launcher_foreground.webp
+│  │  │     │  │  ├─ 📄ic_launcher_monochrome.webp
+│  │  │     │  │  └─ 📄ic_launcher_round.webp
+│  │  │     │  ├─ 📁mipmap-xxhdpi
+│  │  │     │  │  ├─ 📄ic_launcher.webp
+│  │  │     │  │  ├─ 📄ic_launcher_background.webp
+│  │  │     │  │  ├─ 📄ic_launcher_foreground.webp
+│  │  │     │  │  ├─ 📄ic_launcher_monochrome.webp
+│  │  │     │  │  └─ 📄ic_launcher_round.webp
+│  │  │     │  ├─ 📁mipmap-xxxhdpi
+│  │  │     │  │  ├─ 📄ic_launcher.webp
+│  │  │     │  │  ├─ 📄ic_launcher_background.webp
+│  │  │     │  │  ├─ 📄ic_launcher_foreground.webp
+│  │  │     │  │  ├─ 📄ic_launcher_monochrome.webp
+│  │  │     │  │  └─ 📄ic_launcher_round.webp
+│  │  │     │  ├─ 📁values
+│  │  │     │  │  ├─ 📄colors.xml
+│  │  │     │  │  ├─ 📄strings.xml
+│  │  │     │  │  └─ 📄styles.xml
+│  │  │     │  └─ 📁values-night
+│  │  │     │     └─ 📄colors.xml
+│  │  │     └─ 📄AndroidManifest.xml
+│  │  ├─ 📄build.gradle
+│  │  ├─ 📄debug.keystore
+│  │  ├─ 📄google-services.json
+│  │  └─ 📄proguard-rules.pro
+│  ├─ 📁gradle
+│  │  └─ 📁wrapper
+│  │     ├─ 📄gradle-wrapper.jar
+│  │     └─ 📄gradle-wrapper.properties
+│  ├─ 📄.gitignore
+│  ├─ 📄build.gradle
+│  ├─ 📄gradle.properties
+│  ├─ 📄gradlew
+│  ├─ 📄gradlew.bat
+│  └─ 📄settings.gradle
 ├─ 📁app
 │  ├─ 📁(auth)
 │  │  ├─ 📄login.tsx
@@ -165,12 +246,16 @@ creditbook-trimplin
 │  │  └─ 📄SupplierDetailScreen.tsx
 │  ├─ 📁services
 │  │  └─ 📄SyncService.ts
+│  ├─ 📁types
 │  └─ 📁utils
-│     └─ 📄events.ts
+│     ├─ 📄events.ts
+│     └─ 📄imageHelper.ts
 ├─ 📄.gitignore
 ├─ 📄app.json
+├─ 📄babel.config.js
 ├─ 📄eas.json
 ├─ 📄eslint.config.js
+├─ 📄google-services.json
 ├─ 📄package-lock.json
 ├─ 📄package.json
 ├─ 📄README.md
