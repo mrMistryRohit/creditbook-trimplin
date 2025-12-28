@@ -84,6 +84,44 @@ class SyncService {
     }
   }
 
+  /**
+   * ✅ Strip ALL Firestore internal metadata fields
+   */
+  private stripFirestoreMetadata(data: any): any {
+    if (data === null || data === undefined) return data;
+
+    // Handle arrays
+    if (Array.isArray(data)) {
+      return data.map((item) => this.stripFirestoreMetadata(item));
+    }
+
+    // Handle objects
+    if (typeof data === "object") {
+      const cleaned: any = {};
+
+      for (const [key, value] of Object.entries(data)) {
+        // ✅ Skip any field that starts with underscore (Firestore internal)
+        if (key.startsWith("_")) {
+          console.log(`🧹 Stripped Firestore metadata field: ${key}`);
+          continue;
+        }
+
+        // ✅ Skip Firestore internal fields
+        if (key === "firestore" || key === "converter" || key === "key") {
+          continue;
+        }
+
+        // Recursively clean nested objects
+        cleaned[key] = this.stripFirestoreMetadata(value);
+      }
+
+      return cleaned;
+    }
+
+    // Return primitives as-is
+    return data;
+  }
+
   private async setupRealtimeListeners(): Promise<void> {
     if (!this.config?.userId) return;
     const userId = this.config.userId;
@@ -113,7 +151,11 @@ class SyncService {
         (snapshot) => {
           snapshot.docChanges().forEach((change) => {
             if (change.type === "added" || change.type === "modified") {
-              this.downloadDocument(table, change.doc.id, change.doc.data());
+              // ✅ Clean the data before processing
+              const rawData = change.doc.data();
+              const cleanedData = this.stripFirestoreMetadata(rawData);
+
+              this.downloadDocument(table, change.doc.id, cleanedData);
             } else if (change.type === "removed") {
               this.deleteLocalDocument(table, change.doc.id);
             }
@@ -236,7 +278,11 @@ class SyncService {
         console.log(`⬇️ Downloading ${snapshot.size} items to ${table}`);
 
         for (const docSnap of snapshot.docs) {
-          await this.downloadDocument(table, docSnap.id, docSnap.data());
+          // ✅ CRITICAL: Clean the data BEFORE passing to downloadDocument
+          const rawData = docSnap.data();
+          const cleanedData = this.stripFirestoreMetadata(rawData);
+
+          await this.downloadDocument(table, docSnap.id, cleanedData);
         }
       } catch (error) {
         console.error(`❌ Error downloading ${table}:`, error);
@@ -261,7 +307,7 @@ class SyncService {
     try {
       // ✅ For bill_items, use bill_id to check for existing records
       if (table === "bill_items") {
-        // ✅ Map bill_firestore_id to local bill_id
+        // Map bill_firestore_id to local bill_id
         let sqliteBillId: number | null = null;
         if (data.bill_firestore_id) {
           const bill = await db.getFirstAsync<{ id: number }>(
@@ -277,7 +323,7 @@ class SyncService {
           sqliteBillId = bill.id;
         }
 
-        // ✅ Check if already exists by EXACT match (bill_id + all fields)
+        // Check if already exists
         const existing = await db.getFirstAsync<{ id: number }>(
           `SELECT id FROM bill_items 
      WHERE bill_id = ? AND item_name = ? AND quantity = ? AND rate = ? AND total = ?`,
@@ -294,10 +340,11 @@ class SyncService {
           console.log(
             `⚠️ Bill item already exists (bill_id: ${sqliteBillId}, item: ${data.item_name}), skipping duplicate`
           );
-          return; // ✅ Skip duplicate
+          return;
         }
 
-        const sqliteData = this.prepareForSQLiteComplete(
+        // ✅ CRITICAL: Explicitly build ONLY the columns that exist in SQLite
+        const sqliteData = await this.prepareForSQLiteComplete(
           table,
           data,
           firestoreId,
@@ -307,18 +354,39 @@ class SyncService {
           null
         );
 
-        const columns = Object.keys(sqliteData).join(", ");
-        const placeholders = Object.keys(sqliteData)
-          .map(() => "?")
-          .join(", ");
-        const values = Object.values(sqliteData);
+        // ✅ HARDCODE the exact columns for bill_items
+        const columns = [
+          "bill_id",
+          "inventory_id",
+          "item_name",
+          "quantity",
+          "unit",
+          "mrp",
+          "rate",
+          "total",
+        ];
+        const placeholders = columns.map(() => "?").join(", ");
+
+        // ✅ Extract values in the SAME ORDER as columns
+        const values = [
+          sqliteData.bill_id,
+          sqliteData.inventory_id,
+          sqliteData.item_name,
+          sqliteData.quantity,
+          sqliteData.unit,
+          sqliteData.mrp,
+          sqliteData.rate,
+          sqliteData.total,
+        ];
 
         await db.runAsync(
-          `INSERT INTO ${table} (${columns}) VALUES (${placeholders})`,
-          values as any[]
+          `INSERT INTO bill_items (${columns.join(
+            ", "
+          )}) VALUES (${placeholders})`,
+          values
         );
 
-        console.log(`✅ Inserted ${table} for bill_id ${sqliteBillId}`);
+        console.log(`✅ Inserted bill_items for bill_id ${sqliteBillId}`);
         return;
       }
 
@@ -731,7 +799,7 @@ class SyncService {
         };
 
       case "bill_items": {
-        // ✅ Map bill_firestore_id back to local bill_id
+        // Map bill_firestore_id back to local bill_id
         let sqliteBillId: number | null = null;
         if (data.bill_firestore_id) {
           const bill = await db.getFirstAsync<{ id: number }>(
@@ -740,24 +808,14 @@ class SyncService {
           );
           if (!bill) {
             console.warn(
-              `⚠️ Bill not found for bill_items (bill_firestore_id: ${data.bill_firestore_id}), returning empty`
+              `⚠️ Bill not found for bill_items (bill_firestore_id: ${data.bill_firestore_id}), skipping`
             );
-            // ✅ Return valid structure even if bill not found
-            return {
-              bill_id: null,
-              inventory_id: null,
-              item_name: "",
-              quantity: 0,
-              unit: "Nos",
-              mrp: 0,
-              rate: 0,
-              total: 0,
-            };
+            throw new Error("Parent bill not found");
           }
           sqliteBillId = bill.id;
         }
 
-        // ✅ Map inventory_firestore_id back to local inventory_id
+        // Map inventory_firestore_id back to local inventory_id
         let sqliteInventoryId: number | null = null;
         if (data.inventory_firestore_id) {
           const inventory = await db.getFirstAsync<{ id: number }>(
@@ -769,16 +827,16 @@ class SyncService {
           }
         }
 
-        // ✅ IMPORTANT: Return ONLY valid bill_items columns
+        // ✅ Return clean object directly - NO FILTERING NEEDED
         return {
           bill_id: sqliteBillId || data.bill_id || null,
           inventory_id: sqliteInventoryId || data.inventory_id || null,
-          item_name: data.item_name || data.name || "",
-          quantity: data.quantity || 0,
+          item_name: data.item_name || data.itemName || data.name || "",
+          quantity: Number(data.quantity) || 0,
           unit: data.unit || "Nos",
-          mrp: data.mrp || 0,
-          rate: data.rate || 0,
-          total: data.total || 0,
+          mrp: Number(data.mrp) || 0,
+          rate: Number(data.rate) || 0,
+          total: Number(data.total) || 0,
         };
       }
 
