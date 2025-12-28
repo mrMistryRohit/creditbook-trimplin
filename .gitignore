@@ -38,11 +38,5 @@ yarn-error.*
 
 app-example
 
-# generated native folders
-/ios
-/android
-google-services.json
-GoogleService-Info.plist
-
 # Environ ment config files
 .env

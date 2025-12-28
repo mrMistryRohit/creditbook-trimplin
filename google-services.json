@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "272679083852",
+    "project_id": "creditbooktrimplin",
+    "storage_bucket": "creditbooktrimplin.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:272679083852:android:004ee2e6580ce10bbeb9e9",
+        "android_client_info": {
+          "package_name": "com.rohit002002.creditbooktrimplin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDEaPzMPI0_cTrSC-2rxeCVyfNP89rUquk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
