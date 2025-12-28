@@ -1,5 +1,6 @@
 // src/database/inventoryRepo.ts
-import SyncService from "../services/SyncService"; // ✅ ADD THIS
+import SyncService from "../services/SyncService";
+import { compressImageToBase64 } from "../utils/imageHelper"; // ✅ ADD THIS
 import db from "./db";
 
 export interface InventoryItem {
@@ -13,12 +14,12 @@ export interface InventoryItem {
   product_code?: string;
   tax_type: string;
   tax_included: string;
-  photo_uri?: string;
+  photo_uri?: string; // ✅ Stores base64
   date_added: string;
   last_updated: string;
-  firestore_id?: string; // ✅ ADD THIS
-  sync_status?: string; // ✅ ADD THIS
-  updated_at?: string; // ✅ ADD THIS
+  firestore_id?: string;
+  sync_status?: string;
+  updated_at?: string;
 }
 
 export const UNIT_OPTIONS = [
@@ -50,6 +51,9 @@ export async function getInventoryByBusiness(
   return items || [];
 }
 
+/**
+ * ✅ UPDATED: Add inventory item with image compression
+ */
 export async function addInventoryItem(
   businessId: number,
   itemName: string,
@@ -62,7 +66,15 @@ export async function addInventoryItem(
   taxIncluded: string = "Included",
   photoUri?: string
 ): Promise<number> {
-  // ✅ UPDATED: Add sync fields
+  let finalPhotoUri = photoUri;
+
+  // ✅ NEW: Compress image if it's a local file
+  if (finalPhotoUri && !finalPhotoUri.startsWith("data:image")) {
+    console.log("📸 Compressing inventory item image...");
+    finalPhotoUri = await compressImageToBase64(finalPhotoUri);
+    console.log("✅ Inventory image compressed");
+  }
+
   const result = await db.runAsync(
     `INSERT INTO inventory (business_id, item_name, quantity, unit, mrp, rate, product_code, tax_type, tax_included, photo_uri, sync_status, updated_at) 
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
@@ -76,19 +88,20 @@ export async function addInventoryItem(
       productCode || null,
       taxType,
       taxIncluded,
-      photoUri || null,
+      finalPhotoUri || null,
       new Date().toISOString(),
     ]
   );
 
   const itemId = result.lastInsertRowId;
-
-  // ✅ ADD: Queue for sync
   await SyncService.queueForSync("inventory", itemId);
 
   return itemId;
 }
 
+/**
+ * ✅ UPDATED: Update inventory item with image compression
+ */
 export async function updateInventoryItem(
   itemId: number,
   itemName: string,
@@ -101,7 +114,15 @@ export async function updateInventoryItem(
   taxIncluded?: string,
   photoUri?: string
 ): Promise<void> {
-  // ✅ UPDATED: Add sync fields
+  let finalPhotoUri = photoUri;
+
+  // ✅ NEW: Compress image if it's a local file
+  if (finalPhotoUri && !finalPhotoUri.startsWith("data:image")) {
+    console.log("📸 Compressing inventory item image...");
+    finalPhotoUri = await compressImageToBase64(finalPhotoUri);
+    console.log("✅ Inventory image compressed");
+  }
+
   await db.runAsync(
     `UPDATE inventory 
      SET item_name = ?, quantity = ?, unit = ?, mrp = ?, rate = ?, 
@@ -117,13 +138,36 @@ export async function updateInventoryItem(
       productCode || null,
       taxType || "No Tax",
       taxIncluded || "Included",
-      photoUri || null,
+      finalPhotoUri || null,
       new Date().toISOString(),
       itemId,
     ]
   );
 
-  // ✅ ADD: Queue for sync
+  await SyncService.queueForSync("inventory", itemId);
+}
+
+/**
+ * ✅ NEW: Update only inventory item photo
+ */
+export async function updateInventoryPhoto(
+  itemId: number,
+  photoUri: string | null
+): Promise<void> {
+  let finalPhotoUri = photoUri;
+
+  // ✅ Compress if it's a local file
+  if (finalPhotoUri && !finalPhotoUri.startsWith("data:image")) {
+    finalPhotoUri = await compressImageToBase64(finalPhotoUri);
+  }
+
+  await db.runAsync(
+    `UPDATE inventory 
+     SET photo_uri = ?, last_updated = CURRENT_TIMESTAMP, sync_status = 'pending', updated_at = ?
+     WHERE id = ?`,
+    [finalPhotoUri, new Date().toISOString(), itemId]
+  );
+
   await SyncService.queueForSync("inventory", itemId);
 }
 
@@ -131,7 +175,6 @@ export async function updateInventoryQuantity(
   itemId: number,
   quantity: number
 ): Promise<void> {
-  // ✅ UPDATED: Add sync fields
   await db.runAsync(
     `UPDATE inventory 
      SET quantity = ?, last_updated = CURRENT_TIMESTAMP, sync_status = 'pending', updated_at = ? 
@@ -139,20 +182,11 @@ export async function updateInventoryQuantity(
     [quantity, new Date().toISOString(), itemId]
   );
 
-  // ✅ ADD: Queue for sync
   await SyncService.queueForSync("inventory", itemId);
 }
 
 export async function deleteInventoryItem(itemId: number): Promise<void> {
   await db.runAsync(`DELETE FROM inventory WHERE id = ?`, [itemId]);
-
-  // ⚠️ NOTE: Actual deletion - not synced to Firestore
-  // If you want to sync deletions, use a "deleted" flag instead:
-  // await db.runAsync(
-  //   `UPDATE inventory SET deleted = 1, sync_status = 'pending', updated_at = ? WHERE id = ?`,
-  //   [new Date().toISOString(), itemId]
-  // );
-  // await SyncService.queueForSync("inventory", itemId);
 }
 
 export async function getInventoryItem(

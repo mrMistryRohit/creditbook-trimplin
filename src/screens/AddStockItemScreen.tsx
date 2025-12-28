@@ -1,9 +1,11 @@
+// src/screens/AddStockItemScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
-  Alert,
+  ActivityIndicator,
+  Alert, // ✅ ADD THIS
   Image,
   Modal,
   ScrollView,
@@ -26,6 +28,7 @@ import {
   UNIT_OPTIONS,
 } from "../database/inventoryRepo";
 import { appEvents } from "../utils/events";
+import { compressImageToBase64 } from "../utils/imageHelper"; // ✅ ADD THIS
 
 export default function AddStockItemScreen() {
   const router = useRouter();
@@ -43,11 +46,13 @@ export default function AddStockItemScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isCompressingImage, setIsCompressingImage] = useState(false); // ✅ ADD THIS
 
   const [unitModalVisible, setUnitModalVisible] = useState(false);
   const [taxTypeModalVisible, setTaxTypeModalVisible] = useState(false);
   const [taxIncludedModalVisible, setTaxIncludedModalVisible] = useState(false);
 
+  // ✅ UPDATED: Image picker with compression
   const pickImage = async () => {
     const permissionResult =
       await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -61,14 +66,27 @@ export default function AddStockItemScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, // ✅ FIXED: Use correct enum
+      mediaTypes: ["images"], // ✅ Correct format
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
     });
 
-    if (!result.canceled) {
-      setPhotoUri(result.assets[0].uri);
+    if (!result.canceled && result.assets[0]) {
+      try {
+        setIsCompressingImage(true); // ✅ Show loading
+
+        // ✅ Compress image to base64
+        const base64Image = await compressImageToBase64(result.assets[0].uri);
+
+        setPhotoUri(base64Image);
+        console.log("✅ Stock item image compressed");
+      } catch (error) {
+        console.error("Error compressing image:", error);
+        Alert.alert("Error", "Failed to process image");
+      } finally {
+        setIsCompressingImage(false); // ✅ Hide loading
+      }
     }
   };
 
@@ -80,7 +98,6 @@ export default function AddStockItemScreen() {
       return;
     }
 
-    // ✅ FIXED: Use Number.parseFloat
     const mrpValue = Number.parseFloat(mrp) || 0;
     const quantityValue = Number.parseFloat(quantity) || 0;
     const rateValue = Number.parseFloat(rate) || mrpValue;
@@ -143,6 +160,7 @@ export default function AddStockItemScreen() {
 
       console.log("✅ Creating new inventory item:", itemName);
 
+      // ✅ photoUri is already compressed (base64) from pickImage
       await addInventoryItem(
         currentBusiness.id,
         itemName.trim(),
@@ -153,7 +171,7 @@ export default function AddStockItemScreen() {
         productCode.trim() || undefined,
         taxType,
         taxIncluded,
-        photoUri || undefined
+        photoUri || undefined // Already base64
       );
 
       console.log("✅ Item saved successfully");
@@ -181,8 +199,18 @@ export default function AddStockItemScreen() {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
-          <TouchableOpacity style={styles.photoContainer} onPress={pickImage}>
-            {photoUri ? (
+          {/* ✅ UPDATED: Photo container with loading indicator */}
+          <TouchableOpacity
+            style={styles.photoContainer}
+            onPress={pickImage}
+            disabled={isCompressingImage}
+          >
+            {isCompressingImage ? (
+              <>
+                <ActivityIndicator size="large" color={colors.accent} />
+                <Text style={styles.photoText}>Compressing...</Text>
+              </>
+            ) : photoUri ? (
               <Image source={{ uri: photoUri }} style={styles.photo} />
             ) : (
               <>
@@ -340,17 +368,17 @@ export default function AddStockItemScreen() {
             </>
           )}
 
-          {/* ✅ FIXED: Remove disabled prop, handle in onPress */}
           <PrimaryButton
             label={saving ? "Saving..." : "Save Item"}
             onPress={saving ? () => {} : handleSave}
             style={[
               styles.saveButton,
-              saving && { opacity: 0.5 }, // ✅ Visual feedback
+              (saving || isCompressingImage) && { opacity: 0.5 }, // ✅ Disable during compression
             ]}
           />
         </ScrollView>
 
+        {/* Unit Modal */}
         <Modal
           visible={unitModalVisible}
           transparent
@@ -385,6 +413,7 @@ export default function AddStockItemScreen() {
           </View>
         </Modal>
 
+        {/* Tax Type Modal */}
         <Modal
           visible={taxTypeModalVisible}
           transparent
@@ -419,6 +448,7 @@ export default function AddStockItemScreen() {
           </View>
         </Modal>
 
+        {/* Tax Included Modal */}
         <Modal
           visible={taxIncludedModalVisible}
           transparent

@@ -5,6 +5,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   BackHandler,
   FlatList,
@@ -36,6 +37,7 @@ import {
   getTransactionsForCustomer,
 } from "../database/transactionRepo";
 import { appEvents } from "../utils/events";
+import { compressImageToBase64 } from "../utils/imageHelper"; // ✅ ADD THIS
 
 interface CustomerParam {
   id: number;
@@ -88,6 +90,7 @@ export default function CustomerDetailScreen() {
   const [editAddress, setEditAddress] = useState("");
   const [editPhotoUri, setEditPhotoUri] = useState<string | null>(null);
   const [editSmsEnabled, setEditSmsEnabled] = useState(true);
+  const [isCompressingImage, setIsCompressingImage] = useState(false); // ✅ ADD THIS
 
   // You Gave modal
   const [showGivenModal, setShowGivenModal] = useState(false);
@@ -180,7 +183,7 @@ export default function CustomerDetailScreen() {
     );
   };
 
-  // Image Picker for Customer Photo
+  // ✅ UPDATED: Image Picker with compression
   const pickCustomerImage = async () => {
     const permissionResult =
       await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -198,7 +201,20 @@ export default function CustomerDetailScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setEditPhotoUri(result.assets[0].uri);
+      try {
+        setIsCompressingImage(true); // ✅ Show loading
+
+        // ✅ Compress image to base64
+        const base64Image = await compressImageToBase64(result.assets[0].uri);
+
+        setEditPhotoUri(base64Image);
+        console.log("✅ Image compressed and ready");
+      } catch (error) {
+        console.error("Error compressing image:", error);
+        Alert.alert("Error", "Failed to process image");
+      } finally {
+        setIsCompressingImage(false); // ✅ Hide loading
+      }
     }
   };
 
@@ -220,6 +236,7 @@ export default function CustomerDetailScreen() {
     setEditCustomerVisible(true);
   };
 
+  // ✅ UPDATED: Handle save with loading indicator
   const handleSaveCustomer = async () => {
     if (!user || !customerData.id) return;
     if (!editName.trim()) {
@@ -227,29 +244,34 @@ export default function CustomerDetailScreen() {
       return;
     }
 
-    await updateCustomerFull(user.id, customerData.id, {
-      name: editName.trim(),
-      phone: editPhone.trim(),
-      email: editEmail.trim(),
-      address: editAddress.trim(),
-      photo_uri: editPhotoUri || undefined, // ✅ FIXED
+    try {
+      // ✅ updateCustomerFull now handles compression automatically
+      await updateCustomerFull(user.id, customerData.id, {
+        name: editName.trim(),
+        phone: editPhone.trim(),
+        email: editEmail.trim(),
+        address: editAddress.trim(),
+        photo_uri: editPhotoUri || undefined,
+        sms_enabled: editSmsEnabled ? 1 : 0,
+      });
 
-      sms_enabled: editSmsEnabled ? 1 : 0,
-    });
+      setCustomerData({
+        ...customerData,
+        name: editName.trim(),
+        phone: editPhone.trim(),
+        email: editEmail.trim(),
+        address: editAddress.trim(),
+        photo_uri: editPhotoUri,
+        sms_enabled: editSmsEnabled ? 1 : 0,
+      });
 
-    setCustomerData({
-      ...customerData,
-      name: editName.trim(),
-      phone: editPhone.trim(),
-      email: editEmail.trim(),
-      address: editAddress.trim(),
-      photo_uri: editPhotoUri,
-      sms_enabled: editSmsEnabled ? 1 : 0,
-    });
-
-    appEvents.emit("customerUpdated");
-    setEditCustomerVisible(false);
-    Alert.alert("Success", "Customer details updated successfully");
+      appEvents.emit("customerUpdated");
+      setEditCustomerVisible(false);
+      Alert.alert("Success", "Customer details updated and synced!");
+    } catch (error) {
+      console.error("Error saving customer:", error);
+      Alert.alert("Error", "Failed to update customer");
+    }
   };
 
   const handleDeleteCustomer = () => {
@@ -639,12 +661,18 @@ export default function CustomerDetailScreen() {
               <ScrollView showsVerticalScrollIndicator={false}>
                 <Text style={styles.modalTitle}>Edit Customer</Text>
 
-                {/* Photo Picker */}
+                {/* ✅ UPDATED: Photo Picker with loading indicator */}
                 <TouchableOpacity
                   style={styles.imagePickerButton}
                   onPress={pickCustomerImage}
+                  disabled={isCompressingImage}
                 >
-                  {editPhotoUri ? (
+                  {isCompressingImage ? (
+                    <View style={styles.imagePickerPlaceholder}>
+                      <ActivityIndicator size="large" color={colors.accent} />
+                      <Text style={styles.imagePickerText}>Compressing...</Text>
+                    </View>
+                  ) : editPhotoUri ? (
                     <View>
                       <Image
                         source={{ uri: editPhotoUri }}
@@ -706,23 +734,6 @@ export default function CustomerDetailScreen() {
                   multiline
                 />
 
-                {/* <View style={styles.smsSettingRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.smsLabel}>SMS Notifications</Text>
-                    <Text style={styles.smsSubLabel}>
-                      Send transaction updates via SMS
-                    </Text>
-                  </View>
-                  <Switch
-                    value={editSmsEnabled}
-                    onValueChange={setEditSmsEnabled}
-                    trackColor={{ false: colors.border, true: colors.accent }}
-                    thumbColor={
-                      editSmsEnabled ? colors.primary : colors.textMuted
-                    }
-                  />
-                </View> */}
-
                 <View style={styles.modalButtons}>
                   <TouchableOpacity
                     style={[styles.modalButton, styles.cancelButton]}
@@ -733,6 +744,7 @@ export default function CustomerDetailScreen() {
                   <TouchableOpacity
                     style={[styles.modalButton, styles.saveButton]}
                     onPress={handleSaveCustomer}
+                    disabled={isCompressingImage}
                   >
                     <Text style={styles.saveText}>Save</Text>
                   </TouchableOpacity>
@@ -977,33 +989,28 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: spacing.md,
   },
-
   gaveButton: {
     flex: 1,
-    backgroundColor: colors.accent, // Green color
+    backgroundColor: colors.accent,
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
-
   receivedButton: {
     flex: 1,
-    backgroundColor: colors.danger, // Red color
+    backgroundColor: colors.danger,
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
-
   buttonText: {
     color: "white",
     fontSize: 16,
     fontWeight: "600",
     textAlign: "center",
   },
-
-  // Remove or update these old styles if they exist:
   smallButton: {
     flex: 1,
     paddingVertical: 14,

@@ -1,4 +1,6 @@
-import SyncService from "../services/SyncService"; // ✅ ADD THIS
+// src/database/businessRepo.ts
+import SyncService from "../services/SyncService";
+import { compressImageToBase64 } from "../utils/imageHelper"; // ✅ ADD THIS
 import db from "./db";
 
 export interface Business {
@@ -17,12 +19,12 @@ export interface Business {
   bank_account_number?: string | null;
   bank_ifsc?: string | null;
   bank_name?: string | null;
-  logo_uri?: string | null;
+  logo_uri?: string | null; // ✅ Stores base64
   is_default: number;
   created_at: string;
-  firestore_id?: string; // ✅ ADD THIS
-  sync_status?: string; // ✅ ADD THIS
-  updated_at?: string; // ✅ ADD THIS
+  firestore_id?: string;
+  sync_status?: string;
+  updated_at?: string;
 }
 
 export const getBusinessesByUser = async (
@@ -59,7 +61,6 @@ export const addBusiness = async (
   phone?: string,
   address?: string
 ): Promise<number> => {
-  // ✅ UPDATED: Add sync fields
   const result = await db.runAsync(
     `INSERT INTO businesses (user_id, name, description, phone, address, is_default, sync_status, updated_at) 
      VALUES (?, ?, ?, ?, ?, 0, 'pending', ?)`,
@@ -73,7 +74,6 @@ export const addBusiness = async (
     ]
   );
 
-  // ✅ ADD: Queue for sync
   const businessId = result.lastInsertRowId;
   await SyncService.queueForSync("businesses", businessId);
 
@@ -87,7 +87,6 @@ export const updateBusiness = async (
   phone?: string,
   address?: string
 ): Promise<void> => {
-  // ✅ UPDATED: Add sync fields
   await db.runAsync(
     `UPDATE businesses 
      SET name = ?, description = ?, phone = ?, address = ?, sync_status = 'pending', updated_at = ? 
@@ -102,12 +101,11 @@ export const updateBusiness = async (
     ]
   );
 
-  // ✅ ADD: Queue for sync
   await SyncService.queueForSync("businesses", businessId);
 };
 
 /**
- * Update business with all enhanced fields
+ * ✅ UPDATED: Update business with all enhanced fields + image compression
  */
 export const updateBusinessFull = async (
   businessId: number,
@@ -125,10 +123,18 @@ export const updateBusinessFull = async (
     bank_account_number?: string;
     bank_ifsc?: string;
     bank_name?: string;
-    logo_uri?: string;
+    logo_uri?: string; // Can be file:// or base64
   }
 ): Promise<void> => {
-  // ✅ UPDATED: Add sync fields
+  let finalLogoUri = data.logo_uri;
+
+  // ✅ NEW: Compress logo if it's a local file
+  if (finalLogoUri && !finalLogoUri.startsWith("data:image")) {
+    console.log("📸 Compressing business logo...");
+    finalLogoUri = await compressImageToBase64(finalLogoUri);
+    console.log("✅ Business logo compressed");
+  }
+
   await db.runAsync(
     `UPDATE businesses SET 
       name = ?, 
@@ -162,38 +168,78 @@ export const updateBusinessFull = async (
       data.bank_account_number || null,
       data.bank_ifsc || null,
       data.bank_name || null,
-      data.logo_uri || null,
-      new Date().toISOString(), // ✅ ADD THIS
+      finalLogoUri || null,
+      new Date().toISOString(),
       businessId,
     ]
   );
 
-  // ✅ ADD: Queue for sync
   await SyncService.queueForSync("businesses", businessId);
 };
 
 /**
- * Update only business logo
+ * ✅ UPDATED: Update only business logo with compression
  */
 export const updateBusinessLogo = async (
   businessId: number,
   logoUri: string | null
 ): Promise<void> => {
-  // ✅ UPDATED: Add sync fields
+  let finalLogoUri = logoUri;
+
+  // ✅ NEW: Compress if it's a local file
+  if (finalLogoUri && !finalLogoUri.startsWith("data:image")) {
+    console.log("📸 Compressing business logo...");
+    finalLogoUri = await compressImageToBase64(finalLogoUri);
+    console.log("✅ Business logo compressed");
+  }
+
   await db.runAsync(
     `UPDATE businesses SET logo_uri = ?, sync_status = 'pending', updated_at = ? WHERE id = ?`,
-    [logoUri, new Date().toISOString(), businessId]
+    [finalLogoUri, new Date().toISOString(), businessId]
   );
 
-  // ✅ ADD: Queue for sync
   await SyncService.queueForSync("businesses", businessId);
+};
+
+/**
+ * ✅ NEW: Update business logo with sync (dedicated function)
+ */
+export const updateBusinessLogoWithSync = async (
+  businessId: number,
+  imageUri: string
+): Promise<void> => {
+  try {
+    console.log("📸 Compressing business logo...");
+
+    // Compress image to base64
+    const base64Logo = await compressImageToBase64(imageUri);
+
+    console.log("📸 Logo compressed to base64");
+
+    // Update SQLite
+    await db.runAsync(
+      `UPDATE businesses 
+       SET logo_uri = ?, sync_status = 'pending', updated_at = ?
+       WHERE id = ?`,
+      [base64Logo, new Date().toISOString(), businessId]
+    );
+
+    console.log("✅ Logo saved to SQLite");
+
+    // Queue for Firestore sync
+    await SyncService.queueForSync("businesses", businessId);
+
+    console.log("✅ Queued for Firebase sync");
+  } catch (error) {
+    console.error("Error updating business logo:", error);
+    throw error;
+  }
 };
 
 export const setDefaultBusiness = async (
   userId: number,
   businessId: number
 ): Promise<void> => {
-  // ✅ UPDATED: Add sync fields to both queries
   await db.runAsync(
     `UPDATE businesses SET is_default = 0, sync_status = 'pending', updated_at = ? WHERE user_id = ?`,
     [new Date().toISOString(), userId]
@@ -204,7 +250,6 @@ export const setDefaultBusiness = async (
     [new Date().toISOString(), businessId, userId]
   );
 
-  // ✅ ADD: Queue for sync
   await SyncService.queueForSync("businesses", businessId);
 };
 
@@ -226,12 +271,4 @@ export const deleteBusiness = async (businessId: number): Promise<void> => {
   }
 
   await db.runAsync(`DELETE FROM businesses WHERE id = ?`, [businessId]);
-
-  // ⚠️ NOTE: Actual deletion - not synced to Firestore
-  // If you want to sync deletions, use a "deleted" flag instead:
-  // await db.runAsync(
-  //   `UPDATE businesses SET deleted = 1, sync_status = 'pending', updated_at = ? WHERE id = ?`,
-  //   [new Date().toISOString(), businessId]
-  // );
-  // await SyncService.queueForSync("businesses", businessId);
 };

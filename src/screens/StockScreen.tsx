@@ -1,3 +1,4 @@
+// src/screens/StockScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -36,7 +37,6 @@ export default function StockScreen() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // ✅ FIX: Use useRef for timeout to avoid type errors
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadData = useCallback(async () => {
@@ -64,7 +64,7 @@ export default function StockScreen() {
         currentBusiness.id
       );
 
-      // ✅ Deduplicate items by firestore_id or id
+      // Deduplicate items by firestore_id or id
       const uniqueItems = inventoryItems.reduce((acc, item) => {
         const key = item.firestore_id || `local-${item.id}`;
         if (!acc.has(key)) {
@@ -87,12 +87,10 @@ export default function StockScreen() {
     }
   }, [user, currentBusiness]);
 
-  // ✅ FIX: Add loadData to dependency array
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // ✅ FIX: Add router to dependency array
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
       "hardwareBackPress",
@@ -104,7 +102,6 @@ export default function StockScreen() {
     return () => backHandler.remove();
   }, [router]);
 
-  // ✅ IMPROVED: Debounced event handlers with proper cleanup
   useEffect(() => {
     const debouncedReload = () => {
       if (timeoutRef.current) {
@@ -136,7 +133,7 @@ export default function StockScreen() {
       const filtered = items.filter(
         (item) =>
           item.item_name.toLowerCase().includes(query) ||
-          item.product_code?.toLowerCase().includes(query) // ✅ FIX: Optional chaining
+          item.product_code?.toLowerCase().includes(query)
       );
       setFilteredItems(filtered);
     } else {
@@ -166,7 +163,7 @@ export default function StockScreen() {
     try {
       await updateInventoryQuantity(item.id, newQuantity);
 
-      // ✅ Update local state immediately for better UX
+      // Update local state immediately for better UX
       setItems((prevItems) =>
         prevItems.map((i) =>
           i.id === item.id ? { ...i, quantity: newQuantity } : i
@@ -192,8 +189,13 @@ export default function StockScreen() {
         activeOpacity={0.7}
       >
         <View style={styles.itemContent}>
+          {/* ✅ Image rendering with base64 support */}
           {item.photo_uri ? (
-            <Image source={{ uri: item.photo_uri }} style={styles.itemImage} />
+            <Image
+              source={{ uri: item.photo_uri }}
+              style={styles.itemImage}
+              resizeMode="cover" // ✅ ADD: Ensures proper scaling
+            />
           ) : (
             <View style={[styles.itemImage, styles.placeholderImage]}>
               <Ionicons
@@ -279,7 +281,6 @@ export default function StockScreen() {
     );
   };
 
-  // ✅ FIX: Extract empty component outside to avoid SonarLint warning
   const EmptyListComponent = () =>
     loading ? null : (
       <View style={styles.emptyContainer}>
@@ -407,6 +408,7 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 8,
     marginRight: 12,
+    backgroundColor: colors.card, // ✅ ADD: Background fallback
   },
   placeholderImage: {
     backgroundColor: colors.card,

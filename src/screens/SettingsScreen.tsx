@@ -1,9 +1,11 @@
+// src/screens/SettingsScreen.tsx
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  Alert,
+  ActivityIndicator,
+  Alert, // ✅ ADD THIS
   BackHandler,
   FlatList,
   Image,
@@ -28,6 +30,7 @@ import {
 import db from "../database/db";
 import { updateUserProfile } from "../database/userRepo";
 import { appEvents } from "../utils/events";
+import { compressImageToBase64 } from "../utils/imageHelper"; // ✅ ADD THIS
 
 export default function SettingsScreen() {
   const { user, logout, refreshUser } = useAuth();
@@ -65,6 +68,7 @@ export default function SettingsScreen() {
   const [bankIfsc, setBankIfsc] = useState("");
   const [bankName, setBankName] = useState("");
   const [logoUri, setLogoUri] = useState<string | null>(null);
+  const [isCompressingImage, setIsCompressingImage] = useState(false); // ✅ ADD THIS
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
@@ -115,7 +119,6 @@ export default function SettingsScreen() {
     ]);
   };
 
-  // Image Picker for Business Logo
   const pickBusinessImage = async () => {
     const permissionResult =
       await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -133,7 +136,20 @@ export default function SettingsScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setLogoUri(result.assets[0].uri);
+      try {
+        setIsCompressingImage(true);
+
+        // ✅ Compress BEFORE setting state
+        const base64Image = await compressImageToBase64(result.assets[0].uri);
+
+        setLogoUri(base64Image); // ✅ Store compressed base64
+        console.log("✅ Business logo compressed for edit");
+      } catch (error) {
+        console.error("Error compressing image:", error);
+        Alert.alert("Error", "Failed to process image");
+      } finally {
+        setIsCompressingImage(false);
+      }
     }
   };
 
@@ -151,7 +167,7 @@ export default function SettingsScreen() {
     try {
       console.log("🔄 Creating business:", businessName.trim());
 
-      // ✅ FIXED: Added updated_at column
+      // ✅ logoUri is already compressed (base64) from pickBusinessImage
       const result = await db.runAsync(
         `INSERT INTO businesses (
         user_id, name, description, phone, address, 
@@ -174,17 +190,17 @@ export default function SettingsScreen() {
           bankAccountNumber.trim() || null,
           bankIfsc.trim() || null,
           bankName.trim() || null,
-          logoUri || null,
+          logoUri || null, // ✅ Already compressed base64
           0, // is_default
           "pending", // sync_status
-          new Date().toISOString(), // ✅ ADDED: updated_at
+          new Date().toISOString(),
         ]
       );
 
       const businessId = result.lastInsertRowId;
       console.log("✅ Business created with ID:", businessId);
 
-      // ✅ Queue for sync AFTER all data is saved
+      // ✅ Queue for sync
       const { markAsPendingSync } = await import("../database/db");
       await markAsPendingSync("businesses", businessId);
       console.log("✅ Business queued for sync");
@@ -193,7 +209,7 @@ export default function SettingsScreen() {
       appEvents.emit("businessUpdated");
       setAddBusinessVisible(false);
       clearBusinessForm();
-      Alert.alert("Success", "Business has been added");
+      Alert.alert("Success", "Business has been added and will sync to cloud!");
     } catch (error) {
       console.error("❌ Error adding business:", error);
       Alert.alert("Error", "Failed to add business");
@@ -235,7 +251,7 @@ export default function SettingsScreen() {
     try {
       console.log("🔄 Updating business:", selectedBusiness.id);
 
-      // ✅ Update ALL fields in ONE operation
+      // ✅ logoUri is already compressed (base64) from pickBusinessImage
       await db.runAsync(
         `UPDATE businesses SET 
         name = ?, description = ?, phone = ?, address = ?,
@@ -257,7 +273,7 @@ export default function SettingsScreen() {
           bankAccountNumber.trim() || null,
           bankIfsc.trim() || null,
           bankName.trim() || null,
-          logoUri || null,
+          logoUri || null, // ✅ Already compressed base64
           "pending",
           new Date().toISOString(),
           selectedBusiness.id,
@@ -275,12 +291,14 @@ export default function SettingsScreen() {
       appEvents.emit("businessUpdated");
       setEditBusinessVisible(false);
       clearBusinessForm();
-      Alert.alert("Success", "Business has been updated");
+      Alert.alert("Success", "Business has been updated and synced!");
     } catch (err) {
       console.error("❌ Error updating business:", err);
       Alert.alert("Error", "Failed to update business");
     }
   };
+
+  // ... (rest of the functions remain the same)
 
   const handleDeleteBusiness = (business: Business) => {
     setMenuVisibleForId(null);
@@ -729,12 +747,18 @@ export default function SettingsScreen() {
             <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.modalTitle}>Add Business</Text>
 
-              {/* Logo Picker */}
+              {/* ✅ UPDATED: Logo Picker with loading indicator */}
               <TouchableOpacity
                 style={styles.imagePickerButton}
                 onPress={pickBusinessImage}
+                disabled={isCompressingImage}
               >
-                {logoUri ? (
+                {isCompressingImage ? (
+                  <View style={styles.imagePickerPlaceholder}>
+                    <ActivityIndicator size="large" color={colors.accent} />
+                    <Text style={styles.imagePickerText}>Compressing...</Text>
+                  </View>
+                ) : logoUri ? (
                   <View>
                     <Image
                       source={{ uri: logoUri }}
@@ -765,6 +789,7 @@ export default function SettingsScreen() {
                 )}
               </TouchableOpacity>
 
+              {/* ... rest of the form inputs remain the same ... */}
               <TextInput
                 style={styles.modalInput}
                 value={businessName}
@@ -880,6 +905,7 @@ export default function SettingsScreen() {
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalSaveButton]}
                   onPress={handleAddBusiness}
+                  disabled={isCompressingImage}
                 >
                   <Text style={styles.modalSaveText}>Add</Text>
                 </TouchableOpacity>
@@ -889,7 +915,7 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      {/* Edit Business Modal */}
+      {/* Edit Business Modal - Same updates as Add Modal */}
       <Modal
         visible={editBusinessVisible}
         transparent
@@ -901,12 +927,18 @@ export default function SettingsScreen() {
             <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.modalTitle}>Edit Business</Text>
 
-              {/* Logo Picker */}
+              {/* ✅ UPDATED: Logo Picker with loading indicator */}
               <TouchableOpacity
                 style={styles.imagePickerButton}
                 onPress={pickBusinessImage}
+                disabled={isCompressingImage}
               >
-                {logoUri ? (
+                {isCompressingImage ? (
+                  <View style={styles.imagePickerPlaceholder}>
+                    <ActivityIndicator size="large" color={colors.accent} />
+                    <Text style={styles.imagePickerText}>Compressing...</Text>
+                  </View>
+                ) : logoUri ? (
                   <View>
                     <Image
                       source={{ uri: logoUri }}
@@ -937,6 +969,7 @@ export default function SettingsScreen() {
                 )}
               </TouchableOpacity>
 
+              {/* ... rest of the form inputs - same as Add Modal ... */}
               <TextInput
                 style={styles.modalInput}
                 value={businessName}
@@ -1052,6 +1085,7 @@ export default function SettingsScreen() {
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalSaveButton]}
                   onPress={handleEditBusiness}
+                  disabled={isCompressingImage}
                 >
                   <Text style={styles.modalSaveText}>Save</Text>
                 </TouchableOpacity>
@@ -1064,10 +1098,12 @@ export default function SettingsScreen() {
   );
 }
 
+// Styles remain the same
 const styles = StyleSheet.create({
+  // ... (all your existing styles remain unchanged)
   container: {
     flex: 1,
-    paddingHorizontal: spacing.md, // Add this if your Screen doesn't have default padding
+    paddingHorizontal: spacing.md,
   },
   headerContainer: {
     flexDirection: "row",
