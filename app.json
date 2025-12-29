@@ -52,8 +52,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "93cbce7b-091a-47a2-a967-3e624eca237c"
+        "projectId": "19d98979-0f11-4752-b685-69d82bb89d73"
       }
-    }
+    },
+    "owner": "trimplin"
   }
 }
