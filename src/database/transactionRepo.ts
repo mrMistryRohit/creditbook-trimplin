@@ -165,6 +165,7 @@ export const deleteTransaction = async (
   // Revert customer balance
   const delta = type === "credit" ? -amount : amount;
   const now = new Date().toLocaleString("en-IN");
+
   await db.runAsync(
     `UPDATE customers 
      SET balance = balance + ?, last_activity = ?, sync_status = 'pending', updated_at = ? 

@@ -1,4 +1,6 @@
-import SyncService from "../services/SyncService"; // ✅ ADD THIS
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { auth, firestore } from "../config/firebase";
+
 import db from "./db";
 
 export interface User {
@@ -35,15 +37,42 @@ export const createUser = async (
 
   const userId = result.lastInsertRowId;
 
-  // ✅ ADD: Queue for sync
-  await SyncService.queueForSync("users", userId);
-
   return userId;
 };
 
+export async function syncUserProfile(localUser: User) {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+
+  await setDoc(
+    doc(firestore, "users", uid),
+    {
+      user_id: uid,
+      email: localUser.email,
+      name: localUser.name,
+      phone: localUser.phone || "",
+      shop_name: localUser.shop_name || "",
+      updated_at: new Date(),
+    },
+    { merge: true }
+  );
+
+  console.log("✅ User profile synced to Firestore");
+}
+
 export const getUserByEmail = async (email: string): Promise<User | null> => {
   return await db.getFirstAsync<User>(
-    "SELECT id, name, email, phone, shop_name FROM users WHERE email = ?",
+    `SELECT 
+      id,
+      name,
+      email,
+      phone,
+      shop_name,
+      firestore_id,
+      sync_status,
+      updated_at
+     FROM users 
+     WHERE email = ?`,
     [email]
   );
 };
@@ -52,15 +81,48 @@ export const updateUserProfile = async (
   userId: number,
   name: string,
   shopName: string
-): Promise<void> => {
-  // ✅ UPDATED: Add sync fields
+) => {
   await db.runAsync(
     `UPDATE users 
-     SET name = ?, shop_name = ?, sync_status = 'pending', updated_at = ? 
-     WHERE id = ?`,
+     SET name=?, shop_name=?, updated_at=? 
+     WHERE id=?`,
     [name, shopName, new Date().toISOString(), userId]
   );
 
-  // ✅ ADD: Queue for sync
-  await SyncService.queueForSync("users", userId);
+  const localUser = await db.getFirstAsync<User>(
+    "SELECT * FROM users WHERE id=?",
+    [userId]
+  );
+
+  if (localUser) {
+    await syncUserProfile(localUser);
+  }
 };
+
+export async function hydrateUserFromFirestore(uid: string) {
+  const snap = await getDoc(doc(firestore, "users", uid));
+  if (!snap.exists()) return;
+
+  const data = snap.data();
+
+  await db.runAsync(
+    `
+    UPDATE users
+    SET
+      name = ?,
+      phone = ?,
+      shop_name = ?,
+      updated_at = ?
+    WHERE email = ?
+    `,
+    [
+      data.name ?? "",
+      data.phone ?? "",
+      data.shop_name ?? "",
+      new Date().toISOString(),
+      data.email.toLowerCase(),
+    ]
+  );
+
+  console.log("✅ User hydrated from Firestore");
+}

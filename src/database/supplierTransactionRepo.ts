@@ -1,6 +1,7 @@
 // src/database/supplierTransactionRepo.ts
 import SyncService from "../services/SyncService"; // ✅ ADD THIS
 import db from "./db";
+import { recalculateSupplierBalance } from "./supplierRepo";
 
 export interface SupplierTransaction {
   id: number;
@@ -72,6 +73,7 @@ export const addSupplierTransaction = async (
   // ✅ ADD: Queue both for sync
   await SyncService.queueForSync("supplier_transactions", transactionId);
   await SyncService.queueForSync("suppliers", supplierId);
+  await recalculateSupplierBalance(supplierId);
 
   return transactionId; // ✅ ADD: Return the ID
 };

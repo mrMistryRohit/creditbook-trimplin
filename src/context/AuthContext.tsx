@@ -10,6 +10,7 @@ import {
   Firestore,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   setDoc,
   where,
@@ -19,10 +20,13 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { auth, firestore } from "../config/firebase";
 import db from "../database/db";
+import { resetSQLiteDatabase } from "../database/resetSQLite";
+import { hydrateUserFromFirestore } from "../database/userRepo";
 import SyncService from "../services/SyncService";
 
 interface User {
@@ -56,8 +60,18 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const userUnsubscribeRef = useRef<null | (() => void)>(null);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  function subscribeToUserProfile(uid: string, onUpdate: (data: any) => void) {
+    const ref = doc(firestore, "users", uid);
+
+    return onSnapshot(ref, (snap) => {
+      if (!snap.exists()) return;
+      onUpdate(snap.data());
+    });
+  }
 
   // ✅ FIXED: Check Firestore before creating businesses
   useEffect(() => {
@@ -72,6 +86,78 @@ export function AuthProvider({
 
           if (userDoc.exists()) {
             const firestoreData = userDoc.data();
+
+            await hydrateUserFromFirestore(firebaseUser.uid);
+
+            // 🔁 RE-FETCH user AFTER hydration
+            const refreshedUser = await db.getFirstAsync<{
+              id: number;
+              name: string;
+              email: string;
+              phone: string | null;
+              shop_name: string | null;
+            }>(
+              `SELECT id, name, email, phone, shop_name FROM users WHERE email = ?`,
+              [firebaseUser.email?.toLowerCase() || ""]
+            );
+
+            if (refreshedUser) {
+              setUser({
+                id: refreshedUser.id,
+                firebaseUid: firebaseUser.uid,
+                email: refreshedUser.email,
+                name: refreshedUser.name,
+                phone: refreshedUser.phone || undefined,
+                shop_name: refreshedUser.shop_name || undefined,
+              });
+            }
+
+            // Clean any previous listener (important on fast re-login)
+            userUnsubscribeRef.current?.();
+
+            userUnsubscribeRef.current = subscribeToUserProfile(
+              firebaseUser.uid,
+              async (data) => {
+                await db.runAsync(
+                  `
+      UPDATE users
+      SET name=?, phone=?, shop_name=?, updated_at=?
+      WHERE email=?
+      `,
+                  [
+                    data.name ?? "",
+                    data.phone ?? "",
+                    data.shop_name ?? "",
+                    new Date().toISOString(),
+                    data.email.toLowerCase(),
+                  ]
+                );
+
+                const refreshed = await db.getFirstAsync<{
+                  id: number;
+                  name: string;
+                  email: string;
+                  phone: string | null;
+                  shop_name: string | null;
+                }>(
+                  `SELECT id, name, email, phone, shop_name FROM users WHERE email=?`,
+                  [data.email.toLowerCase()]
+                );
+
+                if (refreshed) {
+                  setUser({
+                    id: refreshed.id,
+                    firebaseUid: firebaseUser.uid,
+                    email: refreshed.email,
+                    name: refreshed.name,
+                    phone: refreshed.phone || undefined,
+                    shop_name: refreshed.shop_name || undefined,
+                  });
+                }
+
+                console.log("🔄 User profile updated in real-time");
+              }
+            );
 
             // ✅ Check if SQLite user exists
             let sqliteUser = await db.getFirstAsync<{
@@ -183,18 +269,17 @@ export function AuthProvider({
                 );
               }
 
-              setUser({
-                id: sqliteUser.id,
-                firebaseUid: firebaseUser.uid,
-                email: sqliteUser.email,
-                name: sqliteUser.name,
-                phone: sqliteUser.phone || undefined,
-                shop_name: sqliteUser.shop_name || undefined,
-              });
-
               // ✅ CHANGED: Use reset() instead of just initializeSync()
               SyncService.reset(); // Clears shutdown flag
               await SyncService.initializeSync(firebaseUser.uid);
+              // setUser({
+              //   id: sqliteUser.id,
+              //   firebaseUid: firebaseUser.uid,
+              //   email: sqliteUser.email,
+              //   name: sqliteUser.name,
+              //   phone: sqliteUser.phone || undefined,
+              //   shop_name: sqliteUser.shop_name || undefined,
+              // });
             }
           }
         } catch (error) {
@@ -203,6 +288,9 @@ export function AuthProvider({
       } else {
         console.log("🔐 No Firebase user");
         setUser(null);
+
+        userUnsubscribeRef.current?.();
+        userUnsubscribeRef.current = null;
         SyncService.cleanup();
       }
 
@@ -394,31 +482,28 @@ export function AuthProvider({
     const currentUser = auth.currentUser;
     if (!currentUser) return;
 
-    const userDocRef = doc(firestore as Firestore, "users", currentUser.uid);
-    const userDoc = await getDoc(userDocRef);
+    // ✅ ALWAYS hydrate before reading SQLite
+    await hydrateUserFromFirestore(currentUser.uid);
 
-    if (userDoc.exists()) {
-      const sqliteUser = await db.getFirstAsync<{
-        id: number;
-        name: string;
-        email: string;
-        phone: string | null;
-        shop_name: string | null;
-      }>(
-        `SELECT id, name, email, phone, shop_name FROM users WHERE email = ?`,
-        [currentUser.email?.toLowerCase() || ""]
-      );
+    const sqliteUser = await db.getFirstAsync<{
+      id: number;
+      name: string;
+      email: string;
+      phone: string | null;
+      shop_name: string | null;
+    }>(`SELECT id, name, email, phone, shop_name FROM users WHERE email = ?`, [
+      currentUser.email?.toLowerCase() || "",
+    ]);
 
-      if (sqliteUser) {
-        setUser({
-          id: sqliteUser.id,
-          firebaseUid: currentUser.uid,
-          email: sqliteUser.email,
-          name: sqliteUser.name,
-          phone: sqliteUser.phone || undefined,
-          shop_name: sqliteUser.shop_name || undefined,
-        });
-      }
+    if (sqliteUser) {
+      setUser({
+        id: sqliteUser.id,
+        firebaseUid: currentUser.uid,
+        email: sqliteUser.email,
+        name: sqliteUser.name,
+        phone: sqliteUser.phone || undefined,
+        shop_name: sqliteUser.shop_name || undefined,
+      });
     }
   };
 
@@ -426,15 +511,14 @@ export function AuthProvider({
     try {
       console.log("🚪 Logging out...");
 
-      // ✅ ADD: Cleanup SyncService BEFORE signing out
-      SyncService.cleanup();
-      console.log("✅ SyncService cleaned up");
+      SyncService.cleanup(); // stop listeners & sync
+      await resetSQLiteDatabase(); // wipe offline cache
+      await signOut(auth); // Firebase logout
 
-      await signOut(auth);
       setUser(null);
-      console.log("✅ Logged out");
+      console.log("✅ Logged out cleanly");
     } catch (error) {
-      console.error("❌ Logout error:", error);
+      console.error("❌ Logout failed:", error);
       throw error;
     }
   };

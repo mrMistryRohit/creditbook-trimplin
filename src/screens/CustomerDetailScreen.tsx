@@ -120,6 +120,20 @@ export default function CustomerDetailScreen() {
   }, [user, customer.id]);
 
   useEffect(() => {
+    const reload = () => {
+      loadTransactions();
+    };
+
+    appEvents.on("transactionUpdated", reload);
+    appEvents.on("customerUpdated", reload);
+
+    return () => {
+      appEvents.off("transactionUpdated", reload);
+      appEvents.off("customerUpdated", reload);
+    };
+  }, [loadTransactions]);
+
+  useEffect(() => {
     loadTransactions();
   }, [user, customer.id, loadTransactions]);
 
@@ -458,7 +472,13 @@ export default function CustomerDetailScreen() {
                     style={styles.customerPhotoSmall}
                   />
                 )}
-                <Text style={styles.customerName}>{customerData.name}</Text>
+                <Text
+                  style={styles.customerName}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {customerData.name}
+                </Text>
               </View>
             </TouchableOpacity>
             <Text style={styles.customerTag}>Customer ledger</Text>
@@ -960,7 +980,12 @@ const styles = StyleSheet.create({
   iconButton: { padding: 4, marginLeft: 8 },
   archiveButton: { padding: 4, marginLeft: 8 },
   headerText: { flex: 1 },
-  customerName: { color: colors.text, fontSize: 28, fontWeight: "700" },
+  customerName: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: "700",
+    maxWidth: 130,
+  },
   customerTag: {
     color: colors.textMuted,
     fontSize: typography.small,

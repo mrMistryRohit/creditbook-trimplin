@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   BackHandler,
@@ -22,6 +22,7 @@ import { useBusiness } from "../context/BusinessContext";
 import {
   archiveSupplier,
   deleteSupplier,
+  getSupplierById,
   Supplier,
   unarchiveSupplier,
   updateSupplier,
@@ -45,7 +46,7 @@ export default function SupplierDetailScreen() {
 
   const [supplier, setSupplier] = useState<Supplier | null>(supplierData);
   const [transactions, setTransactions] = useState<SupplierTransaction[]>([]);
-  const [loading, setLoading] = useState(false);
+  // const [loading, setLoading] = useState(false);
 
   // Modals
   const [addVisible, setAddVisible] = useState(false);
@@ -62,13 +63,41 @@ export default function SupplierDetailScreen() {
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
 
-  const loadTransactions = async () => {
+  const loadTransactions = useCallback(async () => {
     if (!user || !supplier) return;
-    setLoading(true);
     const txns = await getTransactionsForSupplier(user.id, supplier.id);
     setTransactions(txns);
-    setLoading(false);
-  };
+  }, [user?.id, supplier?.id]);
+
+  const loadSupplier = useCallback(async () => {
+    if (!supplier) return;
+    const fresh = await getSupplierById(supplier.id);
+    if (fresh) setSupplier(fresh);
+  }, [supplier?.id]);
+
+  const reloadSupplier = useCallback(async () => {
+    if (!user || !supplier) return;
+
+    const fresh = await getSupplierById(supplier.id);
+    if (fresh) {
+      setSupplier(fresh);
+    }
+  }, [user?.id, supplier?.id]);
+
+  useEffect(() => {
+    const refresh = async () => {
+      await reloadSupplier();
+      await loadTransactions();
+    };
+
+    appEvents.on("supplierUpdated", refresh);
+    appEvents.on("supplierTransactionUpdated", refresh);
+
+    return () => {
+      appEvents.off("supplierUpdated", refresh);
+      appEvents.off("supplierTransactionUpdated", refresh);
+    };
+  }, [reloadSupplier, loadTransactions]);
 
   useEffect(() => {
     loadTransactions();
@@ -89,14 +118,15 @@ export default function SupplierDetailScreen() {
   const handleAddTransaction = async () => {
     if (!user || !currentBusiness || !supplier || !amount.trim()) return;
 
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
+    const amountNum = Number.parseFloat(amount);
+    if (Number.isNaN(amountNum) || amountNum <= 0) {
       Alert.alert("Invalid Amount", "Please enter a valid amount.");
       return;
     }
 
     try {
       const now = new Date().toLocaleString("en-IN");
+
       await addSupplierTransaction(
         user.id,
         currentBusiness.id,
@@ -104,7 +134,7 @@ export default function SupplierDetailScreen() {
         transactionType,
         amountNum,
         note.trim() ||
-        (transactionType === "credit" ? "Goods Purchased" : "Payment Made"),
+          (transactionType === "credit" ? "Goods Purchased" : "Payment Made"),
         now
       );
 
@@ -114,13 +144,8 @@ export default function SupplierDetailScreen() {
       setAddVisible(false);
 
       await loadTransactions();
+      await reloadSupplier(); // ✅ correct
       appEvents.emit("supplierUpdated");
-
-      // Update local supplier balance
-      const delta = transactionType === "credit" ? amountNum : -amountNum;
-      setSupplier((prev) =>
-        prev ? { ...prev, balance: prev.balance + delta } : null
-      );
     } catch (error) {
       Alert.alert("Error", "Failed to add transaction");
       console.error(error);
@@ -196,8 +221,8 @@ export default function SupplierDetailScreen() {
       const message =
         currentBalance > 0
           ? `You still owe ₹${absBalance.toLocaleString(
-            "en-IN"
-          )} to the supplier`
+              "en-IN"
+            )} to the supplier`
           : `Supplier still owes ₹${absBalance.toLocaleString("en-IN")} to you`;
 
       Alert.alert("Cannot Delete", message);
@@ -508,7 +533,7 @@ export default function SupplierDetailScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1
+    flex: 1,
   },
   header: {
     flexDirection: "row",
@@ -556,10 +581,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   payableBalance: {
-    color: colors.danger
+    color: colors.danger,
   },
   receivableBalance: {
-    color: colors.accent
+    color: colors.accent,
   },
   addButton: {
     marginBottom: 24,
@@ -592,10 +617,10 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   creditIcon: {
-    backgroundColor: colors.danger
+    backgroundColor: colors.danger,
   },
   debitIcon: {
-    backgroundColor: colors.accent
+    backgroundColor: colors.accent,
   },
   transactionInfo: {
     flex: 1,
@@ -618,13 +643,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   creditText: {
-    color: colors.danger
+    color: colors.danger,
   },
   debitText: {
-    color: colors.accent
+    color: colors.accent,
   },
   separator: {
-    height: 12
+    height: 12,
   },
   emptyContainer: {
     paddingVertical: 40,

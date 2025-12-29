@@ -40,6 +40,29 @@ export const getSupplierById = async (
     [supplierId]
   );
 };
+export async function recalculateSupplierBalance(supplierId: number) {
+  const result = await db.getFirstAsync<{ balance: number }>(
+    `
+    SELECT 
+      COALESCE(
+        SUM(CASE WHEN type = 'credit' THEN amount ELSE -amount END),
+        0
+      ) as balance
+    FROM supplier_transactions
+    WHERE supplier_id = ?
+    `,
+    [supplierId]
+  );
+
+  const balance = result?.balance ?? 0;
+
+  await db.runAsync(`UPDATE suppliers SET balance = ? WHERE id = ?`, [
+    balance,
+    supplierId,
+  ]);
+
+  return balance;
+}
 
 /**
  * ✅ FIXED: Add duplicate checking
@@ -64,7 +87,7 @@ export const addSupplier = async (
     throw new Error(`Supplier "${name}" already exists`);
   }
 
-  const now = new Date().toISOString();
+  const now = new Date().toLocaleString("en-IN");
 
   const result = await db.runAsync(
     `INSERT INTO suppliers (user_id, business_id, name, phone, balance, last_activity, archived, sync_status, updated_at) 
@@ -101,7 +124,7 @@ export const updateSupplier = async (
     throw new Error(`Supplier "${name}" already exists`);
   }
 
-  const now = new Date().toISOString();
+  const now = new Date().toLocaleString("en-IN");
 
   await db.runAsync(
     `UPDATE suppliers 
@@ -117,7 +140,7 @@ export const archiveSupplier = async (
   userId: number,
   supplierId: number
 ): Promise<void> => {
-  const now = new Date().toISOString();
+  const now = new Date().toLocaleString("en-IN");
 
   await db.runAsync(
     `UPDATE suppliers 
@@ -133,7 +156,7 @@ export const unarchiveSupplier = async (
   userId: number,
   supplierId: number
 ): Promise<void> => {
-  const now = new Date().toISOString();
+  const now = new Date().toLocaleString("en-IN");
 
   await db.runAsync(
     `UPDATE suppliers 
@@ -172,7 +195,7 @@ export const updateSupplierBalance = async (
   supplierId: number,
   newBalance: number
 ): Promise<void> => {
-  const now = new Date().toISOString();
+  const now = new Date().toLocaleString("en-IN");
 
   await db.runAsync(
     `UPDATE suppliers 

@@ -18,6 +18,7 @@ import db, {
   markAsSynced,
   updateLastSyncTime,
 } from "../database/db";
+import { recalculateSupplierBalance } from "../database/supplierRepo";
 import { appEvents } from "../utils/events";
 
 interface SyncConfig {
@@ -31,6 +32,7 @@ class SyncService {
   private config: SyncConfig | null = null;
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private realtimeUnsubscribers: (() => void)[] = [];
+  private netInfoUnsubscribe: (() => void) | null = null;
   private isSyncing = false;
   private isOnline = false;
   private isShuttingDown = false; // ✅ Shutdown flag
@@ -56,9 +58,13 @@ class SyncService {
   }
 
   private setupNetworkListener(): void {
-    NetInfo.addEventListener((state) => {
+    // Cleanup old listener if exists
+    this.netInfoUnsubscribe?.();
+
+    this.netInfoUnsubscribe = NetInfo.addEventListener((state) => {
       const wasOnline = this.isOnline;
       this.isOnline = state.isConnected ?? false;
+
       console.log(`📡 Network status: ${this.isOnline ? "Online" : "Offline"}`);
 
       if (
@@ -506,13 +512,22 @@ class SyncService {
 
           if (duplicate) {
             await db.runAsync(
-              `UPDATE supplier_transactions SET firestore_id = ?, sync_status = 'synced' WHERE id = ?`,
+              `UPDATE supplier_transactions 
+     SET firestore_id = ?, sync_status = 'synced' 
+     WHERE id = ?`,
               [firestoreId, duplicate.id]
             );
+
+            // ✅ IMPORTANT: recalc after DB mutation
+            await recalculateSupplierBalance(sqliteSupplierId);
+
+            // Notify supplier + transactions
+            this.emitUpdateEvent("suppliers");
+            this.emitUpdateEvent("supplier_transactions");
+
             console.log(
               `✅ Linked existing supplier_transaction/${duplicate.id} to Firestore/${firestoreId}`
             );
-            this.emitUpdateEvent(table);
             return;
           }
         }
@@ -810,16 +825,25 @@ class SyncService {
           .filter((k) => k !== "id")
           .map((k) => sqliteData[k]);
 
-        // ✅ FIX: Type assertion for values array
         await db.runAsync(`UPDATE ${table} SET ${setClause} WHERE id = ?`, [
           ...values,
           existing.id,
         ] as any[]);
 
+        // 🔑 CRITICAL FIX
+        if (table === "supplier_transactions" && sqliteSupplierId) {
+          await recalculateSupplierBalance(sqliteSupplierId);
+
+          // refresh all dependent UIs
+          this.emitUpdateEvent("suppliers");
+          this.emitUpdateEvent("supplier_transactions");
+        } else {
+          this.emitUpdateEvent(table);
+        }
+
         console.log(
           `✅ Updated ${table}/${existing.id} from Firestore/${firestoreId}`
         );
-        this.emitUpdateEvent(table);
       } else {
         // Insert new record
         const columns = Object.keys(sqliteData).join(", ");
@@ -833,8 +857,17 @@ class SyncService {
           values as any[]
         );
 
+        // 🔑 SAME FIX FOR INSERT
+        if (table === "supplier_transactions" && sqliteSupplierId) {
+          await recalculateSupplierBalance(sqliteSupplierId);
+
+          this.emitUpdateEvent("suppliers");
+          this.emitUpdateEvent("supplier_transactions");
+        } else {
+          this.emitUpdateEvent(table);
+        }
+
         console.log(`✅ Inserted ${table} from Firestore/${firestoreId}`);
-        this.emitUpdateEvent(table);
       }
     } catch (error) {
       if (!this.isShuttingDown) {
@@ -863,6 +896,17 @@ class SyncService {
     const created_at = convertTimestamp(data.created_at);
 
     switch (table) {
+      // case "users":
+      //   return {
+      //     firestore_id: firestoreId,
+      //     sync_status: "synced",
+      //     name: data.name || "",
+      //     email: data.email || "",
+      //     phone: data.phone || null,
+      //     shop_name: data.shop_name || null,
+      //     updated_at: convertTimestamp(data.updated_at),
+      //   };
+
       case "businesses":
         return {
           user_id: sqliteUserId,
@@ -1132,27 +1176,21 @@ class SyncService {
   cleanup(): void {
     console.log("🧹 Cleaning up SyncService");
 
-    // ✅ Set shutdown flag FIRST
     this.isShuttingDown = true;
 
-    // Stop periodic sync
+    // ✅ NEW: stop NetInfo listener
+    this.netInfoUnsubscribe?.();
+    this.netInfoUnsubscribe = null;
+
     this.stopPeriodicSync();
 
-    // Unsubscribe from all real-time listeners
-    console.log(
-      `🔕 Unsubscribing from ${this.realtimeUnsubscribers.length} listeners`
-    );
     this.realtimeUnsubscribers.forEach((unsub) => {
       try {
         unsub();
-      } catch (error) {
-        // Silently ignore errors during cleanup
-        console.log("⚠️ Error unsubscribing listener (expected after logout)");
-      }
+      } catch {}
     });
     this.realtimeUnsubscribers = [];
 
-    // Clear config
     this.config = null;
     this.isSyncing = false;
 
