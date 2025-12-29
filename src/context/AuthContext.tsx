@@ -25,7 +25,7 @@ import React, {
 } from "react";
 import { auth, firestore } from "../config/firebase";
 import db from "../database/db";
-import { resetSQLiteDatabase } from "../database/resetSQLite";
+// import { resetSQLiteDatabase } from "../database/resetSQLite";
 import { hydrateUserFromFirestore } from "../database/userRepo";
 import SyncService from "../services/SyncService";
 
@@ -511,14 +511,15 @@ export function AuthProvider({
     try {
       console.log("🚪 Logging out...");
 
-      SyncService.cleanup(); // stop listeners & sync
-      await resetSQLiteDatabase(); // wipe offline cache
-      await signOut(auth); // Firebase logout
+      // ✅ ADD: Cleanup SyncService BEFORE signing out
+      SyncService.cleanup();
+      console.log("✅ SyncService cleaned up");
 
+      await signOut(auth);
       setUser(null);
-      console.log("✅ Logged out cleanly");
+      console.log("✅ Logged out");
     } catch (error) {
-      console.error("❌ Logout failed:", error);
+      console.error("❌ Logout error:", error);
       throw error;
     }
   };

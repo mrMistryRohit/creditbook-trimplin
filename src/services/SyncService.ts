@@ -32,7 +32,6 @@ class SyncService {
   private config: SyncConfig | null = null;
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private realtimeUnsubscribers: (() => void)[] = [];
-  private netInfoUnsubscribe: (() => void) | null = null;
   private isSyncing = false;
   private isOnline = false;
   private isShuttingDown = false; // ✅ Shutdown flag
@@ -58,10 +57,7 @@ class SyncService {
   }
 
   private setupNetworkListener(): void {
-    // Cleanup old listener if exists
-    this.netInfoUnsubscribe?.();
-
-    this.netInfoUnsubscribe = NetInfo.addEventListener((state) => {
+    NetInfo.addEventListener((state) => {
       const wasOnline = this.isOnline;
       this.isOnline = state.isConnected ?? false;
 
@@ -1176,21 +1172,27 @@ class SyncService {
   cleanup(): void {
     console.log("🧹 Cleaning up SyncService");
 
+    // ✅ Set shutdown flag FIRST
     this.isShuttingDown = true;
 
-    // ✅ NEW: stop NetInfo listener
-    this.netInfoUnsubscribe?.();
-    this.netInfoUnsubscribe = null;
-
+    // Stop periodic sync
     this.stopPeriodicSync();
 
+    // Unsubscribe from all real-time listeners
+    console.log(
+      `🔕 Unsubscribing from ${this.realtimeUnsubscribers.length} listeners`
+    );
     this.realtimeUnsubscribers.forEach((unsub) => {
       try {
         unsub();
-      } catch {}
+      } catch (error) {
+        // Silently ignore errors during cleanup
+        console.log("⚠️ Error unsubscribing listener (expected after logout)");
+      }
     });
     this.realtimeUnsubscribers = [];
 
+    // Clear config
     this.config = null;
     this.isSyncing = false;
 
