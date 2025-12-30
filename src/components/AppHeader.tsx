@@ -11,8 +11,8 @@ export default function AppHeader({ title, subtitle }: Props) {
   return (
     <View style={styles.container}>
       <View>
-        <Text style={styles.appName}>CreditBook</Text>
-        <Text style={styles.brand}>by Trimplin</Text>
+        <Text style={styles.appName}>M A Financial Services</Text>
+        {/* <Text style={styles.brand}>by Trimplin</Text> */}
       </View>
       <View style={styles.right}>
         <Text style={styles.title}>{title}</Text>

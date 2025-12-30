@@ -1,4 +1,4 @@
-package com.rohit002002.creditbooktrimplin
+package com.rohit002002.MAFinancialServices
 
 import android.app.Application
 import android.content.res.Configuration

@@ -44,8 +44,8 @@ export default function LoginScreen() {
     >
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>CreditBook</Text>
-          <Text style={styles.subtitle}>by Trimplin</Text>
+          <Text style={styles.title}>M A Financial Services</Text>
+          {/* <Text style={styles.subtitle}>by Trimplin</Text> */}
           <Text style={styles.tagline}>Sign in to continue</Text>
         </View>
 
@@ -80,7 +80,7 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Don't have an account? </Text>
+            <Text style={styles.footerText}>Don&apos;t have an account? </Text>
             <TouchableOpacity onPress={() => router.push("/(auth)/register")}>
               <Text style={styles.link}>Register</Text>
             </TouchableOpacity>
@@ -93,10 +93,27 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { flex: 1, justifyContent: "center", paddingHorizontal: spacing.lg },
-  header: { alignItems: "center", marginBottom: spacing.xl },
-  title: { fontSize: 32, fontWeight: "700", color: colors.accent },
-  subtitle: { fontSize: 16, color: colors.textMuted, marginTop: 4 },
+  content: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingBottom: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.lg,
+  },
+  header: {
+    alignItems: "center",
+    marginBottom: spacing.xl,
+  },
+  title: {
+    alignItems: "center",
+    fontSize: 28,
+    fontWeight: "900",
+    color: colors.accent,
+  },
+  // subtitle: { fontSize: 16, color: colors.textMuted, marginTop: 4 },
   tagline: { fontSize: 14, color: colors.text, marginTop: spacing.md },
   form: { width: "100%" },
   input: {

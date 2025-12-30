@@ -1,19 +1,19 @@
 {
   "expo": {
-    "name": "creditbook-trimplin",
+    "name": "M A Financial Services",
     "slug": "creditbook-trimplin",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "creditbooktrimplin",
+    "scheme": "MAFinancialService",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.rohit002002.creditbooktrimplin"
+      "bundleIdentifier": "com.rohit002002.MAFinancialServices"
     },
     "android": {
-      "package": "com.rohit002002.creditbooktrimplin",
+      "package": "com.rohit002002.MAFinancialServices",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",

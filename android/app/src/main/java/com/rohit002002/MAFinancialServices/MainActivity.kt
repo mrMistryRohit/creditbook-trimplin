@@ -1,4 +1,4 @@
-package com.rohit002002.creditbooktrimplin
+package com.rohit002002.MAFinancialServices
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

@@ -71,6 +71,26 @@ creditbook-trimplin
 │  ├─ 📄extensions.json
 │  └─ 📄settings.json
 ├─ 📁android
+│  ├─ 📁.gradle
+│  │  ├─ 📁8.14.3
+│  │  │  ├─ 📁checksums
+│  │  │  │  └─ 📄checksums.lock
+│  │  │  ├─ 📁expanded
+│  │  │  ├─ 📁fileChanges
+│  │  │  │  └─ 📄last-build.bin
+│  │  │  ├─ 📁fileHashes
+│  │  │  │  ├─ 📄fileHashes.bin
+│  │  │  │  ├─ 📄fileHashes.lock
+│  │  │  │  └─ 📄resourceHashesCache.bin
+│  │  │  ├─ 📁vcsMetadata
+│  │  │  └─ 📄gc.properties
+│  │  ├─ 📁buildOutputCleanup
+│  │  │  ├─ 📄buildOutputCleanup.lock
+│  │  │  └─ 📄cache.properties
+│  │  ├─ 📁noVersion
+│  │  │  └─ 📄buildLogic.lock
+│  │  └─ 📁vcs-1
+│  │     └─ 📄gc.properties
 │  ├─ 📁app
 │  │  ├─ 📁src
 │  │  │  ├─ 📁debug
@@ -142,6 +162,15 @@ creditbook-trimplin
 │  │  ├─ 📄debug.keystore
 │  │  ├─ 📄google-services.json
 │  │  └─ 📄proguard-rules.pro
+│  ├─ 📁build
+│  │  ├─ 📁generated
+│  │  │  └─ 📁autolinking
+│  │  │     ├─ 📄autolinking.json
+│  │  │     ├─ 📄package-lock.json.sha
+│  │  │     └─ 📄package.json.sha
+│  │  └─ 📁reports
+│  │     └─ 📁problems
+│  │        └─ 📄problems-report.html
 │  ├─ 📁gradle
 │  │  └─ 📁wrapper
 │  │     ├─ 📄gradle-wrapper.jar

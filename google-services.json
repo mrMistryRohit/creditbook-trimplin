@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "272679083852",
-    "project_id": "creditbooktrimplin",
-    "storage_bucket": "creditbooktrimplin.firebasestorage.app"
+    "project_number": "835755337436",
+    "project_id": "mafinancialservices-ba7f4",
+    "storage_bucket": "mafinancialservices-ba7f4.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:272679083852:android:004ee2e6580ce10bbeb9e9",
+        "mobilesdk_app_id": "1:835755337436:android:e50760247467438099b619",
         "android_client_info": {
-          "package_name": "com.rohit002002.creditbooktrimplin"
+          "package_name": "com.rohit002002.MAFinancialServices"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDEaPzMPI0_cTrSC-2rxeCVyfNP89rUquk"
+          "current_key": "AIzaSyCG9EHESQm7G1-xNqJMzrBav7B3nyaMz44"
         }
       ],
       "services": {
