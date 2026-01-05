@@ -1,10 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
+  Image,
   Modal,
+  ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -16,19 +22,20 @@ import PrimaryButton from "../components/PrimaryButton";
 import Screen from "../components/Screen";
 import { useAuth } from "../context/AuthContext";
 import { useBusiness } from "../context/BusinessContext";
-import { Business, getBusinessesByUser } from "../database/businessRepo"; // ✅ ADD THIS
+import { Business, getBusinessesByUser } from "../database/businessRepo";
 import {
-  addCustomer,
+  addCustomerFull,
   Customer,
   getCustomersByUser,
 } from "../database/customerRepo";
-import db from "../database/db"; // ✅ ADD THIS
+import db from "../database/db";
 import {
   addSupplier,
   getSuppliersByUser,
   Supplier,
 } from "../database/supplierRepo";
 import { appEvents } from "../utils/events";
+import { compressImageToBase64 } from "../utils/imageHelper";
 
 type SortOption = "date" | "name" | "amount";
 type SortOrder = "asc" | "desc";
@@ -37,7 +44,7 @@ type HomeTab = "customers" | "suppliers";
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { currentBusiness, setCurrentBusiness } = useBusiness(); // ✅ ADD setCurrentBusiness
+  const { currentBusiness, setCurrentBusiness } = useBusiness();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<HomeTab>("customers");
@@ -58,17 +65,63 @@ export default function HomeScreen() {
   // Modals
   const [addCustomerVisible, setAddCustomerVisible] = useState(false);
   const [addSupplierVisible, setAddSupplierVisible] = useState(false);
-  const [businessSwitcherVisible, setBusinessSwitcherVisible] = useState(false); // ✅ ADD THIS
-  const [newName, setNewName] = useState("");
-  const [newPhone, setNewPhone] = useState("");
+  const [businessSwitcherVisible, setBusinessSwitcherVisible] = useState(false);
 
-  // ✅ ADD: Business list state
+  // Supplier fields (simple)
+  const [newSupplierName, setNewSupplierName] = useState("");
+  const [newSupplierPhone, setNewSupplierPhone] = useState("");
+
+  // ✅ Full customer creation fields
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [newCustomerEmail, setNewCustomerEmail] = useState("");
+  const [newCustomerAddress, setNewCustomerAddress] = useState("");
+  const [newCustomerPhotoUri, setNewCustomerPhotoUri] = useState<string | null>(
+    null
+  );
+  const [newCustomerSmsEnabled, setNewCustomerSmsEnabled] = useState(true);
+  const [isCompressingNewCustomerImage, setIsCompressingNewCustomerImage] =
+    useState(false);
+
   const [businesses, setBusinesses] = useState<Business[]>([]);
-
   const [reloadTrigger, setReloadTrigger] = useState(0);
 
-  // ✅ ADD: Load businesses function
-  // ✅ UPDATED: Load businesses function
+  // ✅ Image picker for customer creation
+  const pickNewCustomerImage = async () => {
+    const permissionResult =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (permissionResult.granted === false) {
+      Alert.alert("Permission Required", "Please allow access to your photos");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      try {
+        setIsCompressingNewCustomerImage(true);
+        const base64Image = await compressImageToBase64(result.assets[0].uri);
+        setNewCustomerPhotoUri(base64Image);
+        console.log("✅ Customer image compressed");
+      } catch (error) {
+        console.error("Error compressing image:", error);
+        Alert.alert("Error", "Failed to process image");
+      } finally {
+        setIsCompressingNewCustomerImage(false);
+      }
+    }
+  };
+
+  const removeNewCustomerImage = () => {
+    setNewCustomerPhotoUri(null);
+  };
+
   const loadBusinesses = useCallback(async () => {
     if (!user?.id || typeof user.id !== "number") {
       console.log("⚠️ HomeScreen: Invalid user ID:", user?.id);
@@ -94,7 +147,6 @@ export default function HomeScreen() {
       currentBusiness?.id
     );
 
-    // ✅ UPDATED: Validate user and business
     if (!user?.id || typeof user.id !== "number") {
       console.log("⚠️ HomeScreen: Invalid user ID:", user?.id);
       return;
@@ -136,10 +188,9 @@ export default function HomeScreen() {
 
   useEffect(() => {
     loadData();
-    loadBusinesses(); // ✅ ADD THIS
+    loadBusinesses();
   }, [loadData, loadBusinesses, reloadTrigger]);
 
-  // ✅ ADD: Debug sync columns (temporary - remove after verification)
   useEffect(() => {
     const testSyncColumns = async () => {
       try {
@@ -148,7 +199,6 @@ export default function HomeScreen() {
         );
         console.log("📊 Customer table columns:", customerColumns);
 
-        // Check if sync columns exist
         const hasSyncColumns = customerColumns.some(
           (col: any) =>
             col.name === "firestore_id" || col.name === "sync_status"
@@ -289,51 +339,72 @@ export default function HomeScreen() {
     }
   };
 
+  // ✅ Full customer creation with all fields
   const handleAddCustomer = async () => {
-    if (
-      !user?.id ||
-      typeof user.id !== "number" ||
-      !currentBusiness ||
-      !newName.trim()
-    ) {
+    if (!user?.id || typeof user.id !== "number" || !currentBusiness) {
       console.log("⚠️ Cannot add customer - missing data");
       return;
     }
 
-    await addCustomer(
-      user.id,
-      currentBusiness.id,
-      newName.trim(),
-      newPhone.trim()
-    );
-    appEvents.emit("customerUpdated");
-    setNewName("");
-    setNewPhone("");
-    setAddCustomerVisible(false);
+    if (!newCustomerName.trim()) {
+      Alert.alert("Validation", "Customer name is required");
+      return;
+    }
+
+    try {
+      await addCustomerFull(
+        user.id,
+        currentBusiness.id,
+        newCustomerName.trim(),
+        newCustomerPhone.trim() || undefined,
+        newCustomerEmail.trim() || undefined,
+        newCustomerAddress.trim() || undefined,
+        newCustomerPhotoUri || undefined,
+        newCustomerSmsEnabled ? 1 : 0
+      );
+
+      appEvents.emit("customerUpdated");
+      setAddCustomerVisible(false);
+
+      // Reset all fields
+      setNewCustomerName("");
+      setNewCustomerPhone("");
+      setNewCustomerEmail("");
+      setNewCustomerAddress("");
+      setNewCustomerPhotoUri(null);
+      setNewCustomerSmsEnabled(true);
+
+      Alert.alert("Success", "Customer added successfully!");
+      await loadData();
+    } catch (error) {
+      console.error("Error adding customer:", error);
+      Alert.alert("Error", "Failed to add customer");
+    }
   };
+
   const handleAddSupplier = async () => {
-    if (
-      !user?.id ||
-      typeof user.id !== "number" ||
-      !currentBusiness ||
-      !newName.trim()
-    ) {
+    if (!user?.id || typeof user.id !== "number" || !currentBusiness) {
       console.log("⚠️ Cannot add supplier - missing data");
+      return;
+    }
+
+    if (!newSupplierName.trim()) {
+      Alert.alert("Validation", "Supplier name is required");
       return;
     }
 
     await addSupplier(
       user.id,
       currentBusiness.id,
-      newName.trim(),
-      newPhone.trim()
+      newSupplierName.trim(),
+      newSupplierPhone.trim()
     );
     appEvents.emit("supplierUpdated");
-    setNewName("");
-    setNewPhone("");
+    setNewSupplierName("");
+    setNewSupplierPhone("");
     setAddSupplierVisible(false);
   };
-  // ✅ ADD: Handle business switch
+
   const handleBusinessSwitch = (business: Business) => {
     setCurrentBusiness(business);
     setBusinessSwitcherVisible(false);
@@ -453,7 +524,6 @@ export default function HomeScreen() {
     );
   };
 
-  // ✅ ADD: Render business item in switcher
   const renderBusinessItem = ({ item }: { item: Business }) => {
     const isActive = item.id === currentBusiness?.id;
 
@@ -501,7 +571,7 @@ export default function HomeScreen() {
   return (
     <Screen>
       <View style={styles.container}>
-        {/* ✅ UPDATED: Custom Header with Business Switcher */}
+        {/* Header with Business Switcher */}
         <TouchableOpacity
           style={styles.header}
           onPress={() => setBusinessSwitcherVisible(true)}
@@ -539,7 +609,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
 
-        {/* Unified Summary Card */}
+        {/* Summary Card */}
         <Card style={styles.summaryCard}>
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
@@ -570,7 +640,6 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* Buttons */}
           <View style={styles.buttonRow}>
             <PrimaryButton
               label="+ Add customer"
@@ -646,7 +715,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Customer/Supplier Tab Switcher */}
+        {/* Tab Switcher */}
         <View style={styles.tabSwitcher}>
           <TouchableOpacity
             style={[
@@ -705,7 +774,7 @@ export default function HomeScreen() {
           }
         />
 
-        {/* ✅ ADD: Business Switcher Modal */}
+        {/* Business Switcher Modal */}
         <Modal
           visible={businessSwitcherVisible}
           transparent
@@ -741,7 +810,7 @@ export default function HomeScreen() {
           </View>
         </Modal>
 
-        {/* Add Customer Modal */}
+        {/* ✅ Full Customer Creation Modal */}
         <Modal
           visible={addCustomerVisible}
           transparent
@@ -750,41 +819,165 @@ export default function HomeScreen() {
         >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Add Customer</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Customer name"
-                placeholderTextColor={colors.textMuted}
-                value={newName}
-                onChangeText={setNewName}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Phone (optional)"
-                placeholderTextColor={colors.textMuted}
-                value={newPhone}
-                onChangeText={setNewPhone}
-                keyboardType="phone-pad"
-              />
-              <View style={styles.modalButtons}>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Add New Customer</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setAddCustomerVisible(false);
+                      setNewCustomerName("");
+                      setNewCustomerPhone("");
+                      setNewCustomerEmail("");
+                      setNewCustomerAddress("");
+                      setNewCustomerPhotoUri(null);
+                      setNewCustomerSmsEnabled(true);
+                    }}
+                  >
+                    <Ionicons name="close" size={24} color={colors.text} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Photo Picker */}
                 <TouchableOpacity
-                  style={[styles.modalButton, styles.cancelButton]}
-                  onPress={() => setAddCustomerVisible(false)}
+                  style={styles.imagePickerButton}
+                  onPress={pickNewCustomerImage}
+                  disabled={isCompressingNewCustomerImage}
                 >
-                  <Text style={styles.cancelText}>Cancel</Text>
+                  {isCompressingNewCustomerImage ? (
+                    <View style={styles.imagePickerPlaceholder}>
+                      <ActivityIndicator size="large" color={colors.accent} />
+                      <Text style={styles.imagePickerText}>Compressing...</Text>
+                    </View>
+                  ) : newCustomerPhotoUri ? (
+                    <View>
+                      <Image
+                        source={{ uri: newCustomerPhotoUri }}
+                        style={styles.pickedImage}
+                      />
+                      <TouchableOpacity
+                        style={styles.removeImageButton}
+                        onPress={removeNewCustomerImage}
+                      >
+                        <Ionicons
+                          name="close-circle"
+                          size={24}
+                          color={colors.danger}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.imagePickerPlaceholder}>
+                      <Ionicons
+                        name="camera"
+                        size={32}
+                        color={colors.textMuted}
+                      />
+                      <Text style={styles.imagePickerText}>
+                        Add Photo (Optional)
+                      </Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.saveButton]}
-                  onPress={handleAddCustomer}
-                >
-                  <Text style={styles.saveText}>Save</Text>
-                </TouchableOpacity>
-              </View>
+
+                {/* Name - Required */}
+                <TextInput
+                  style={styles.input}
+                  value={newCustomerName}
+                  onChangeText={setNewCustomerName}
+                  placeholder="Customer Name *"
+                  placeholderTextColor={colors.textMuted}
+                  autoFocus
+                />
+
+                {/* Phone */}
+                <TextInput
+                  style={styles.input}
+                  value={newCustomerPhone}
+                  onChangeText={setNewCustomerPhone}
+                  placeholder="Phone Number (Optional)"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="phone-pad"
+                  maxLength={15}
+                />
+
+                {/* Email */}
+                <TextInput
+                  style={styles.input}
+                  value={newCustomerEmail}
+                  onChangeText={setNewCustomerEmail}
+                  placeholder="Email Address (Optional)"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+
+                {/* Address */}
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={newCustomerAddress}
+                  onChangeText={setNewCustomerAddress}
+                  placeholder="Address (Optional)"
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                  numberOfLines={3}
+                />
+
+                {/* SMS Toggle */}
+                <View style={styles.smsSettingRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.smsLabel}>SMS Notifications</Text>
+                    <Text style={styles.smsSubLabel}>
+                      Send payment reminders via SMS
+                    </Text>
+                  </View>
+                  <Switch
+                    value={newCustomerSmsEnabled}
+                    onValueChange={setNewCustomerSmsEnabled}
+                    trackColor={{ false: colors.border, true: colors.accent }}
+                    thumbColor={
+                      newCustomerSmsEnabled ? colors.primary : colors.textMuted
+                    }
+                  />
+                </View>
+
+                {/* Buttons */}
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.cancelButton]}
+                    onPress={() => {
+                      setAddCustomerVisible(false);
+                      setNewCustomerName("");
+                      setNewCustomerPhone("");
+                      setNewCustomerEmail("");
+                      setNewCustomerAddress("");
+                      setNewCustomerPhotoUri(null);
+                      setNewCustomerSmsEnabled(true);
+                    }}
+                  >
+                    <Text style={styles.cancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.modalButton,
+                      styles.saveButton,
+                      (!newCustomerName.trim() ||
+                        isCompressingNewCustomerImage) &&
+                        styles.saveButtonDisabled,
+                    ]}
+                    onPress={handleAddCustomer}
+                    disabled={
+                      isCompressingNewCustomerImage || !newCustomerName.trim()
+                    }
+                  >
+                    <Text style={styles.saveText}>Add Customer</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
           </View>
         </Modal>
 
-        {/* Add Supplier Modal */}
+        {/* Add Supplier Modal (Simple) */}
         <Modal
           visible={addSupplierVisible}
           transparent
@@ -793,20 +986,26 @@ export default function HomeScreen() {
         >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Add Supplier</Text>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Add Supplier</Text>
+                <TouchableOpacity onPress={() => setAddSupplierVisible(false)}>
+                  <Ionicons name="close" size={24} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+
               <TextInput
                 style={styles.input}
                 placeholder="Supplier name"
                 placeholderTextColor={colors.textMuted}
-                value={newName}
-                onChangeText={setNewName}
+                value={newSupplierName}
+                onChangeText={setNewSupplierName}
               />
               <TextInput
                 style={styles.input}
                 placeholder="Phone (optional)"
                 placeholderTextColor={colors.textMuted}
-                value={newPhone}
-                onChangeText={setNewPhone}
+                value={newSupplierPhone}
+                onChangeText={setNewSupplierPhone}
                 keyboardType="phone-pad"
               />
               <View style={styles.modalButtons}>
@@ -832,10 +1031,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  // ✅ UPDATED: Header styles
+  container: { flex: 1 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -859,9 +1055,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  businessNameContainer: {
-    flex: 1,
-  },
+  businessNameContainer: { flex: 1 },
   businessLabel: {
     color: colors.textMuted,
     fontSize: 11,
@@ -879,50 +1073,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     flex: 1,
   },
-  profileIcon: {
-    marginLeft: 12,
-  },
-
-  summaryCard: {
-    marginTop: 8,
-    marginBottom: 16,
-    padding: 16,
-  },
+  profileIcon: { marginLeft: 12 },
+  summaryCard: { marginTop: 8, marginBottom: 16, padding: 16 },
   summaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 16,
   },
-  summaryItem: {
-    flex: 1,
-  },
-  summaryLabel: {
-    color: colors.textMuted,
-    fontSize: 13,
-    marginBottom: 6,
-  },
-  summaryValue: {
-    fontSize: 24,
-    fontWeight: "700",
-  },
-  summaryBreakdown: {
-    color: colors.textMuted,
-    fontSize: 11,
-    marginTop: 4,
-  },
-
+  summaryItem: { flex: 1 },
+  summaryLabel: { color: colors.textMuted, fontSize: 13, marginBottom: 6 },
+  summaryValue: { fontSize: 24, fontWeight: "700" },
+  summaryBreakdown: { color: colors.textMuted, fontSize: 11, marginTop: 4 },
   due: { color: colors.accent },
   advance: { color: colors.danger },
   payable: { color: colors.danger },
   receivable: { color: colors.accent },
-  buttonRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  addButton: {
-    flex: 1,
-    marginTop: 4,
-  },
+  buttonRow: { flexDirection: "row", gap: 8 },
+  addButton: { flex: 1, marginTop: 4 },
   searchInput: {
     backgroundColor: colors.inputBackground,
     borderRadius: 12,
@@ -934,12 +1101,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-
-  sortRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 16,
-  },
+  sortRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
   sortButton: {
     flex: 1,
     paddingVertical: 8,
@@ -954,14 +1116,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  sortText: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  sortTextActive: {
-    color: "white",
-  },
+  sortText: { color: colors.textMuted, fontSize: 12, fontWeight: "600" },
+  sortTextActive: { color: "white" },
   tabSwitcher: {
     flexDirection: "row",
     marginBottom: 16,
@@ -975,21 +1131,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: "transparent",
   },
-  tabButtonActive: {
-    borderBottomColor: colors.accent,
-  },
-  tabButtonText: {
-    color: colors.textMuted,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  tabButtonTextActive: {
-    color: colors.accent,
-    fontWeight: "700",
-  },
-  listContent: {
-    paddingBottom: 120,
-  },
+  tabButtonActive: { borderBottomColor: colors.accent },
+  tabButtonText: { color: colors.textMuted, fontSize: 15, fontWeight: "600" },
+  tabButtonTextActive: { color: colors.accent, fontWeight: "700" },
+  listContent: { paddingBottom: 120 },
   itemRow: {
     backgroundColor: colors.inputBackground,
     paddingVertical: 16,
@@ -999,37 +1144,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  itemInfo: {
-    flex: 1,
-  },
-  itemName: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  itemSubtitle: {
-    color: colors.textMuted,
-    fontSize: 13,
-    marginTop: 4,
-  },
-  balanceContainer: {
-    alignItems: "flex-end",
-    marginLeft: 16,
-  },
-  balance: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  balanceLabel: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginTop: 2,
-  },
+  itemInfo: { flex: 1 },
+  itemName: { color: colors.text, fontSize: 16, fontWeight: "600" },
+  balanceContainer: { alignItems: "flex-end", marginLeft: 16 },
+  balance: { fontSize: 16, fontWeight: "700" },
+  balanceLabel: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   separator: { height: 12 },
-  emptyContainer: {
-    paddingVertical: 60,
-    alignItems: "center",
-  },
+  emptyContainer: { paddingVertical: 60, alignItems: "center" },
   emptyText: {
     color: colors.textMuted,
     fontSize: 14,
@@ -1048,7 +1169,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: colors.border,
-    maxHeight: "70%",
+    maxHeight: "85%",
   },
   modalHeader: {
     flexDirection: "row",
@@ -1056,11 +1177,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
-  modalTitle: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: "700",
-  },
+  modalTitle: { color: colors.text, fontSize: 20, fontWeight: "700" },
   input: {
     backgroundColor: colors.inputBackground,
     borderRadius: 12,
@@ -1072,32 +1189,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  textArea: { height: 80, textAlignVertical: "top" },
   modalButtons: {
     flexDirection: "row",
     justifyContent: "flex-end",
     marginTop: 12,
     gap: 10,
   },
-  modalButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-  },
+  modalButton: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
   cancelButton: {
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  saveButton: {
-    backgroundColor: colors.primary,
-  },
+  saveButton: { backgroundColor: colors.primary },
+  saveButtonDisabled: { opacity: 0.5 },
   cancelText: { color: colors.textMuted, fontSize: 15 },
   saveText: { color: "white", fontSize: 15, fontWeight: "600" },
-
-  // ✅ ADD: Business switcher styles
-  businessList: {
-    maxHeight: 400,
-  },
+  businessList: { maxHeight: 400 },
   businessItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -1125,42 +1234,66 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     borderColor: colors.accent,
   },
-  businessItemInfo: {
-    flex: 1,
-  },
-  businessItemName: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  businessItemNameActive: {
-    color: colors.accent,
-    fontWeight: "700",
-  },
-  businessItemPhone: {
-    color: colors.textMuted,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  businessSeparator: {
-    height: 12,
-  },
+  businessItemInfo: { flex: 1 },
+  businessItemName: { color: colors.text, fontSize: 16, fontWeight: "600" },
+  businessItemNameActive: { color: colors.accent, fontWeight: "700" },
+  businessItemPhone: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  businessSeparator: { height: 12 },
   itemSubtitleDue: {
     marginTop: 4,
     fontSize: 13,
     fontWeight: "700",
-    color: "#FF4D4F", // red
+    color: "#FF4D4F",
   },
   itemSubtitleLast: {
     marginTop: 4,
     fontSize: 13,
     fontWeight: "700",
-    color: "#5AC8FA", // blue
+    color: "#5AC8FA",
   },
   itemSubtitleNone: {
     marginTop: 4,
     fontSize: 13,
     fontWeight: "700",
-    color: "#F39C12", // amber
+    color: "#F39C12",
   },
+  // ✅ Image picker styles
+  imagePickerButton: { alignItems: "center", marginBottom: 16 },
+  imagePickerPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: colors.inputBackground,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderStyle: "dashed",
+  },
+  imagePickerText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: "center",
+  },
+  pickedImage: { width: 100, height: 100, borderRadius: 50 },
+  removeImageButton: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+  },
+  smsSettingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.inputBackground,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  smsLabel: { color: colors.text, fontSize: 15, fontWeight: "600" },
+  smsSubLabel: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
 });

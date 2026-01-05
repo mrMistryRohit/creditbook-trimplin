@@ -1,6 +1,6 @@
 // src/database/customerRepo.ts
 import SyncService from "../services/SyncService";
-import { compressImageToBase64 } from "../utils/imageHelper"; // ✅ ADD THIS
+import { compressImageToBase64 } from "../utils/imageHelper";
 import db from "./db";
 
 export interface Customer {
@@ -11,7 +11,7 @@ export interface Customer {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
-  photo_uri?: string | null; // ✅ Now stores base64
+  photo_uri?: string | null;
   balance: number;
   last_activity?: string | null;
   archived?: number;
@@ -46,6 +46,7 @@ export const getCustomerById = async (
   );
 };
 
+// ✅ SIMPLE: Basic customer creation (backward compatible)
 export const addCustomer = async (
   userId: number,
   businessId: number,
@@ -72,6 +73,56 @@ export const addCustomer = async (
   );
 
   const customerId = result.lastInsertRowId;
+  await SyncService.queueForSync("customers", customerId);
+
+  return customerId;
+};
+
+// ✅ NEW: Full customer creation with all fields
+export const addCustomerFull = async (
+  userId: number,
+  businessId: number,
+  name: string,
+  phone?: string,
+  email?: string,
+  address?: string,
+  photoUri?: string,
+  smsEnabled?: number
+): Promise<number> => {
+  const now = new Date().toLocaleDateString("en-IN");
+  let finalPhotoUri = photoUri;
+
+  // ✅ Compress image if it's a local file
+  if (finalPhotoUri && !finalPhotoUri.startsWith("data:image")) {
+    console.log("📸 Compressing customer image to base64...");
+    finalPhotoUri = await compressImageToBase64(finalPhotoUri);
+    console.log("✅ Customer image compressed");
+  }
+
+  const result = await db.runAsync(
+    `INSERT INTO customers (
+      user_id, business_id, name, phone, email, address, 
+      photo_uri, sms_enabled, balance, last_activity, 
+      archived, due_date, sync_status, updated_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, NULL, 'pending', ?, ?)`,
+    [
+      userId,
+      businessId,
+      name,
+      phone || null,
+      email || null,
+      address || null,
+      finalPhotoUri || null,
+      smsEnabled !== undefined ? smsEnabled : 1,
+      now,
+      new Date().toISOString(),
+      new Date().toISOString(),
+    ]
+  );
+
+  const customerId = result.lastInsertRowId;
+  console.log("✅ Customer added (full):", customerId, name);
+
   await SyncService.queueForSync("customers", customerId);
 
   return customerId;
@@ -104,13 +155,13 @@ export const updateCustomerFull = async (
     phone?: string;
     email?: string;
     address?: string;
-    photo_uri?: string; // Can be file:// or base64
+    photo_uri?: string;
     sms_enabled?: number;
   }
 ): Promise<void> => {
   let finalPhotoUri = data.photo_uri;
 
-  // ✅ NEW: If photo is a local file (not base64), compress it
+  // ✅ If photo is a local file (not base64), compress it
   if (finalPhotoUri && !finalPhotoUri.startsWith("data:image")) {
     console.log("📸 Compressing image to base64...");
     finalPhotoUri = await compressImageToBase64(finalPhotoUri);
@@ -190,7 +241,7 @@ export const updateCustomerPhoto = async (
 ): Promise<void> => {
   let finalPhotoUri = photoUri;
 
-  // ✅ NEW: Compress if it's a local file
+  // ✅ Compress if it's a local file
   if (finalPhotoUri && !finalPhotoUri.startsWith("data:image")) {
     finalPhotoUri = await compressImageToBase64(finalPhotoUri);
   }
